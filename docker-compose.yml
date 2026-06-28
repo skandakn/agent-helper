@@ -1,0 +1,99 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: hackathon_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d hackathon_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+  backend:
+    build:
+      context: ./backend
+      network: host
+    restart: unless-stopped
+    environment:
+      POSTGRES_URL: postgresql+asyncpg://user:pass@postgres:5432/hackathon_db
+      QDRANT_URL: http://qdrant:6333
+      AGENT_RUNTIME: ${AGENT_RUNTIME:-deterministic}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GEMINI_PRO_MODEL: ${GEMINI_PRO_MODEL:-gemini-3.5-flash}
+      GEMINI_FLASH_MODEL: ${GEMINI_FLASH_MODEL:-gemini-3.5-flash}
+      JWT_SECRET: ${JWT_SECRET:-local_dev_secret_change_me}
+      BACKEND_CORS_ORIGINS: '["http://localhost:3000","http://127.0.0.1:3000"]'
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    volumes:
+      - ./backend/app:/app/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ./frontend
+      network: host
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_WS_URL: ws://localhost:8000
+      NODE_ENV: development
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+
+  qdrant-mcp:
+    build:
+      context: ./mcp-servers/qdrant-mcp
+      network: host
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      EMBEDDING_DIM: 384
+    depends_on:
+      qdrant:
+        condition: service_started
+
+  tools-mcp:
+    build:
+      context: ./mcp-servers/tools-mcp
+      network: host
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    volumes:
+      - artifacts:/data/artifacts
+
+volumes:
+  pgdata:
+  qdrant_storage:
+  artifacts:

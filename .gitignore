@@ -1,0 +1,10 @@
+backend/.venv/
+backend_smoke_api.db
+*.pyc
+__pycache__/
+frontend/.next/
+frontend/node_modules/
+frontend/.pnpm-store/
+node_modules/
+.env
+.env.example

@@ -1,0 +1,22 @@
+services:
+  backend:
+    restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    environment:
+      APP_ENV: prod
+      LOG_LEVEL: INFO
+      AGENT_RUNTIME: gemini
+
+  frontend:
+    restart: unless-stopped
+    command: node server.js
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_WS_URL: ws://localhost:8000
+
+  postgres:
+    restart: unless-stopped
+
+  qdrant:
+    restart: unless-stopped
