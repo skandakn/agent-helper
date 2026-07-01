@@ -11,7 +11,11 @@ services:
         value: "prod"
       - key: LOG_LEVEL
         value: "INFO"
+      - key: AGENT_RUNTIME
+        value: "gemini"
       - key: AUTO_CREATE_TABLES
+        value: "false"
+      - key: RUN_MIGRATIONS_ON_STARTUP
         value: "true"
       - key: BACKEND_AUTH_MODE
         value: "strict"

@@ -1,6 +1,6 @@
 """Optional Gemini/ADK integration points.
 
-The workflow defaults to ``AGENT_RUNTIME=auto``. In auto mode a configured
+The workflow defaults to ``AGENT_RUNTIME=gemini``. A configured
 Gemini-compatible key activates model-backed generation, while local demos
 without keys keep the deterministic fallback. Every model response is validated
 against the same Pydantic contracts used by the fallback runtime.

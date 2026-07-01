@@ -6,7 +6,7 @@ Production-oriented MVP for a multi-agent hackathon launch system. It takes a ha
 
 - Frontend: Next.js pages for dashboard, event creation, live agent monitor, package editing, memory search, no-token message generation, analytics, settings, and Clerk auth.
 - Backend: FastAPI with async SQLAlchemy, PostgreSQL persistence, Alembic migrations, Clerk JWT verification, WebSocket progress updates, structured Pydantic contracts, and background workflow execution.
-- Agents: Orchestrator coordinates Research, Branding, Content, Social Media, Operations, and Critic agents. Each agent has narrow inputs/outputs and validated JSON contracts. `AGENT_RUNTIME=auto` uses Gemini when a Google key is configured and deterministic fallback when no key is present.
+- Agents: Orchestrator coordinates Research, Branding, Content, Social Media, Operations, and Critic agents. Each agent has narrow inputs/outputs and validated JSON contracts. `AGENT_RUNTIME=gemini` uses Gemini when a Google key is configured and deterministic fallback when no key is present.
 - Memory: Qdrant collections for long-term memory, with a clearly labeled in-process fallback for local MVP runs.
 - Tooling: MCP servers expose Qdrant memory tools and safe utility tools.
 - Deployment: Docker Compose starts Postgres, Qdrant, FastAPI, Next.js, and MCP services.
@@ -79,6 +79,9 @@ Contracts live in `backend/app/models/agent.py`.
 - `GET /agents?event_id={id}`: recent runs.
 - `GET /memory/search?query=...`: Qdrant/fallback memory search.
 - `GET /analytics/overview`: dashboard metrics.
+- `POST /auth/register`: optional local JWT registration for API demos.
+- `POST /auth/login`: optional local JWT login for API demos.
+- `GET /auth/session`: authenticated Clerk/local session inspection.
 - `GET /health`: backend health.
 - `WS /ws/{event_id}`: live agent progress events.
 
@@ -99,11 +102,11 @@ Then open:
 - Frontend: `http://localhost:3000`
 - Backend docs: `http://localhost:8000/docs`
 
-The default runtime is `auto`: it uses Gemini-backed generation when `GEMINI_API_KEY` or `GOOGLE_API_KEY` is configured, and falls back to deterministic generation when no key exists. This keeps demos token-safe while making the Google integration active by default in configured environments.
+The default runtime is `gemini`: it uses Gemini-backed generation when `GEMINI_API_KEY` or `GOOGLE_API_KEY` is configured, and falls back to deterministic generation when no key exists. This keeps demos token-safe while making the Google integration active by default in configured environments.
 
 Clerk authentication is wired into the frontend at `/sign-in` and `/sign-up`. The frontend forwards Clerk session tokens to the backend, and FastAPI can verify them with `CLERK_ISSUER_URL` or `CLERK_JWKS_URL`. Use `BACKEND_AUTH_MODE=optional` for local demos and `BACKEND_AUTH_MODE=strict` for production.
 
-Production database migrations are included:
+Production database migrations are included and can run automatically with `RUN_MIGRATIONS_ON_STARTUP=true`:
 
 ```bash
 cd backend

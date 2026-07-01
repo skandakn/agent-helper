@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     GOOGLE_API_KEY: SecretStr | None = None
     GEMINI_PRO_MODEL: str = "gemini-2.5-pro"
     GEMINI_FLASH_MODEL: str = "gemini-2.5-flash"
-    AGENT_RUNTIME: Literal["auto", "deterministic", "gemini"] = "auto"
+    AGENT_RUNTIME: Literal["auto", "deterministic", "gemini"] = "gemini"
 
     QDRANT_URL: str = "http://qdrant:6333"
     QDRANT_API_KEY: SecretStr | None = None
@@ -37,6 +37,7 @@ class Settings(BaseSettings):
 
     POSTGRES_URL: str = "postgresql+asyncpg://user:pass@postgres:5432/hackathon_db"
     AUTO_CREATE_TABLES: bool = True
+    RUN_MIGRATIONS_ON_STARTUP: bool = False
 
     JWT_SECRET: SecretStr = Field(default=SecretStr("change_me_to_random_256bit_secret"))
     JWT_ALGORITHM: str = "HS256"

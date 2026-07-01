@@ -34,7 +34,8 @@ services:
       POSTGRES_URL: postgresql+asyncpg://user:pass@postgres:5432/hackathon_db
       AUTO_CREATE_TABLES: ${AUTO_CREATE_TABLES:-true}
       QDRANT_URL: http://qdrant:6333
-      AGENT_RUNTIME: ${AGENT_RUNTIME:-auto}
+      AGENT_RUNTIME: ${AGENT_RUNTIME:-gemini}
+      RUN_MIGRATIONS_ON_STARTUP: ${RUN_MIGRATIONS_ON_STARTUP:-false}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       GEMINI_PRO_MODEL: ${GEMINI_PRO_MODEL:-gemini-2.5-pro}
@@ -63,7 +64,8 @@ services:
       network: host
     restart: unless-stopped
     env_file:
-      - ./frontend/.env.local
+      - path: ./frontend/.env.local
+        required: false
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
       NEXT_PUBLIC_WS_URL: ws://localhost:8000
