@@ -309,6 +309,12 @@ html[lang="ur"] {
   gap: 14px;
 }
 
+.account-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .topbar-title {
   font-family: var(--font-display);
   font-size: 24px;
@@ -838,6 +844,110 @@ table.data-table td {
 }
 
 .mobile-menu-btn { display: none; }
+
+/* auth */
+
+.auth-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}
+
+.auth-panel {
+  width: min(100%, 720px);
+  padding: 32px;
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.auth-copy {
+  color: var(--text-muted);
+  max-width: 560px;
+}
+
+.auth-steps {
+  margin: 26px 0 0;
+  padding-left: 24px;
+  color: var(--text-muted);
+  line-height: 1.75;
+}
+
+.auth-steps code,
+.auth-code {
+  font-family: var(--font-mono);
+}
+
+.auth-code {
+  margin: 22px 0 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.auth-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 24px;
+}
+
+.auth-page :where(.cl-card) {
+  border-radius: 10px;
+}
+
+.auth-page :where(.cl-socialButtonsBlockButton) {
+  background: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.92) !important;
+  color: #111827 !important;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.28) !important;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.auth-page :where(.cl-socialButtonsBlockButton:hover) {
+  border-color: #ffffff !important;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.38) !important;
+  transform: translateY(-1px);
+}
+
+.auth-page :where(.cl-socialButtonsBlockButtonText) {
+  color: #111827 !important;
+  font-weight: 800 !important;
+}
+
+.auth-page :where(.cl-socialButtonsProviderIcon) {
+  opacity: 1 !important;
+}
+
+.auth-page :where(.cl-formButtonPrimary) {
+  background: linear-gradient(135deg, #ff7a33, #e84393) !important;
+  box-shadow: 0 12px 30px rgba(255, 122, 51, 0.35) !important;
+  color: #ffffff !important;
+  font-weight: 800 !important;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.auth-page :where(.cl-formButtonPrimary:hover) {
+  box-shadow: 0 16px 38px rgba(255, 122, 51, 0.45) !important;
+  transform: translateY(-1px);
+}
+
+.auth-page :where(.cl-footerActionLink) {
+  color: #ff9a5c !important;
+  font-weight: 800 !important;
+}
 
 @media (max-width: 980px) {
   .shell { grid-template-columns: 1fr; }

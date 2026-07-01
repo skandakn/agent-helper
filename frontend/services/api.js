@@ -1,12 +1,86 @@
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const STAGE_KEYS = ["research", "branding", "content", "social_media", "operations", "critic"];
+
+let authTokenProvider = null;
+
+export function setAuthTokenProvider(provider) {
+  authTokenProvider = typeof provider === "function" ? provider : null;
+}
+
+function completeProgress() {
+  return Object.fromEntries(STAGE_KEYS.map((key) => [key, 100]));
+}
+
+export function normalizeConstraints(constraints = {}) {
+  const budget = constraints.budget ?? constraints.budget_inr ?? 500000;
+  const duration = constraints.duration_days ?? 60;
+  const teamSize = constraints.team_size ?? 5;
+  return {
+    ...constraints,
+    budget: Number(budget) || 0,
+    budget_inr: Number(budget) || 0,
+    duration_days: clampNumber(duration, 1, 730, 60),
+    team_size: clampNumber(teamSize, 1, 50, 5),
+    currency: constraints.currency || "INR",
+  };
+}
+
+function clampNumber(value, min, max, fallback) {
+  if (value === "") return fallback;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(min, Math.min(max, number));
+}
+
+export function normalizeEventRecord(event = {}) {
+  const brief = event.brief || {};
+  const constraints = normalizeConstraints(brief.constraints || event.constraints || {});
+  const status = event.status || "planning";
+  const progress =
+    event.progress && Object.keys(event.progress).length
+      ? event.progress
+      : status === "ready" || status === "launched"
+        ? completeProgress()
+        : {};
+
+  return {
+    ...event,
+    id: event.id ?? event.event_id,
+    theme: event.theme || brief.theme || event.title || "",
+    goals: event.goals || brief.goals || "",
+    audience: event.audience || brief.audience || "",
+    constraints,
+    status,
+    progress,
+    createdAt: event.createdAt || event.created_at,
+    updatedAt: event.updatedAt || event.updated_at,
+  };
+}
+
+function normalizeLaunchPayload(payload = {}) {
+  const theme = (payload.theme || "").trim();
+  const goals =
+    (payload.goals || "").trim() || "Generate a complete launch-ready hackathon campaign package.";
+  const audience =
+    (payload.audience || "").trim() ||
+    "builders, students, sponsors, mentors, judges, and community partners";
+  return {
+    ...payload,
+    theme,
+    goals,
+    audience,
+    constraints: normalizeConstraints(payload.constraints || {}),
+  };
+}
 
 async function request(path, options = {}) {
   let res;
   try {
-    res = await fetch(`${BASE}${path}`, {
-      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-      ...options,
-    });
+    const token = authTokenProvider ? await authTokenProvider() : null;
+    res = await fetchWithOptionalToken(path, options, token);
+    if (res.status === 401 && token) {
+      res = await fetchWithOptionalToken(path, options, null);
+    }
   } catch (err) {
     const e = new Error(`Couldn't reach the backend at ${BASE}. Is it running?`);
     e.cause = err;
@@ -18,7 +92,7 @@ async function request(path, options = {}) {
     let detail = res.statusText;
     try {
       const body = await res.json();
-      detail = body.detail || detail;
+      detail = formatApiError(body.detail || body.message || detail);
     } catch {
       /* body wasn't JSON */
     }
@@ -35,13 +109,39 @@ async function request(path, options = {}) {
   }
 }
 
+function fetchWithOptionalToken(path, options, token) {
+  const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+  return fetch(`${BASE}${path}`, {
+    headers: { "Content-Type": "application/json", ...authHeaders, ...(options.headers || {}) },
+    ...options,
+  });
+}
+
+function formatApiError(detail) {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        if (typeof item === "string") return item;
+        const path = Array.isArray(item?.loc) ? item.loc.join(".") : "";
+        const message = item?.msg || JSON.stringify(item);
+        return path ? `${path}: ${message}` : message;
+      })
+      .join("; ");
+  }
+  if (detail && typeof detail === "object") {
+    return detail.message || detail.msg || JSON.stringify(detail);
+  }
+  return String(detail || "Request failed");
+}
+
 export const api = {
   baseUrl: BASE,
 
   /** Lightweight reachability probe for the system-status pill. */
   async checkHealth() {
     try {
-      const res = await fetch(`${BASE}/`, { method: "GET" });
+      const res = await fetch(`${BASE}/health`, { method: "GET" });
       return res.ok || res.status < 500;
     } catch {
       return false;
@@ -49,15 +149,23 @@ export const api = {
   },
 
   // ── missions (events) ────────────────────────────────────────────
-  // NOTE: GET /events is not in the original backend spec — see README
-  // "API contract" section. The frontend tries it and falls back to the
-  // locally-cached recent-missions list if it's not implemented yet.
+  // The frontend also keeps a local cache so the dashboard remains useful
+  // when the backend is offline.
   async listEvents(projectId = 1) {
-    return request(`/events?project_id=${projectId}`);
+    const data = await request(`/events?project_id=${projectId}`);
+    return Array.isArray(data) ? data.map(normalizeEventRecord) : data;
   },
 
   async launchEvent(payload) {
-    return request("/events/launch", { method: "POST", body: JSON.stringify(payload) });
+    return request("/events/launch", { method: "POST", body: JSON.stringify(normalizeLaunchPayload(payload)) });
+  },
+
+  async getEvent(eventId) {
+    return normalizeEventRecord(await request(`/events/${eventId}`));
+  },
+
+  async deleteEvent(eventId) {
+    return request(`/events/${eventId}`, { method: "DELETE" });
   },
 
   async getEventStatus(eventId) {
@@ -68,9 +176,9 @@ export const api = {
     return request(`/events/${eventId}/output`);
   },
 
-  // Not in the original spec — used by Campaign Builder's "Save changes".
+  // Used by Campaign Builder's save/edit path.
   async updateEvent(eventId, patch) {
-    return request(`/events/${eventId}`, { method: "PATCH", body: JSON.stringify(patch) });
+    return request(`/events/${eventId}/output`, { method: "PATCH", body: JSON.stringify(patch) });
   },
 
   // ── memory explorer ──────────────────────────────────────────────
@@ -82,7 +190,7 @@ export const api = {
 
   // ── analytics ─────────────────────────────────────────────────────
   async getAnalyticsSummary() {
-    return request("/analytics/summary");
+    return request("/analytics/overview");
   },
 
   // ── settings ──────────────────────────────────────────────────────

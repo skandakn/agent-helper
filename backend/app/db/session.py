@@ -21,11 +21,10 @@ async_session_factory = async_sessionmaker(
 
 
 async def init_db() -> None:
-    """Create database tables for the MVP.
+    """Create database tables for local demos when auto-create is enabled."""
 
-    Production deployments can swap this for Alembic migrations; the model layer
-    is intentionally migration-ready.
-    """
+    if not settings.AUTO_CREATE_TABLES:
+        return
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

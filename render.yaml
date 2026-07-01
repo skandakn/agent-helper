@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: agent-helper-api
+    env: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: prod
+      - key: LOG_LEVEL
+        value: INFO
+      - key: AUTO_CREATE_TABLES
+        value: true
+      - key: BACKEND_AUTH_MODE
+        value: strict
+      - key: BACKEND_CORS_ORIGINS
+        value: https://agent-helper-sable.vercel.app
+      - key: CLERK_AUTHORIZED_PARTIES
+        value: https://agent-helper-sable.vercel.app
+      - key: CLERK_ISSUER_URL
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: POSTGRES_URL
+        sync: false
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false

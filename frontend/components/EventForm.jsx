@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useRouter } from "next/router";
 import { ArrowRight, ArrowLeft, Rocket, Loader2 } from "lucide-react";
-import { api } from "../services/api";
+import { api, normalizeConstraints } from "../services/api";
 import { useEventStore } from "../store/event";
 import { formatCurrencyINR } from "../lib/stages";
 import { useTranslation } from "../lib/i18n/context";
@@ -9,7 +9,7 @@ import { useTranslation } from "../lib/i18n/context";
 export default function EventForm() {
   const router = useRouter();
   const { t } = useTranslation();
-  const { addRecentMission } = useEventStore();
+  const { addRecentMission, setCurrent } = useEventStore();
 
   const STEPS = [
     { code: "01", label: t("createEvent.stepBrief") },
@@ -21,7 +21,7 @@ export default function EventForm() {
     theme: "",
     goals: "",
     audience: "",
-    constraints: { budget_inr: 500000, duration_days: 2, team_size: 5 },
+    constraints: { budget_inr: 500000, duration_days: 60, team_size: 5 },
   };
 
   const [step, setStep] = useState(0);
@@ -33,25 +33,51 @@ export default function EventForm() {
   const setConstraint = (key, value) =>
     setForm((f) => ({ ...f, constraints: { ...f.constraints, [key]: value } }));
 
-  const canAdvance = step === 0 ? form.theme.trim().length > 0 : true;
+  const durationDays = clampNumber(form.constraints.duration_days, 1, 730, 60);
+  const teamSize = clampNumber(form.constraints.team_size, 1, 50, 5);
+  const budgetInr = clampNumber(form.constraints.budget_inr, 0, Number.MAX_SAFE_INTEGER, 500000);
+  const canAdvance =
+    step === 0
+      ? form.theme.trim().length > 0
+      : step === 1
+        ? form.constraints.duration_days !== "" && form.constraints.team_size !== ""
+        : true;
+
+  function normalizeFormConstraints() {
+    return normalizeConstraints({
+      ...form.constraints,
+      budget_inr: budgetInr,
+      duration_days: durationDays,
+      team_size: teamSize,
+    });
+  }
 
   async function handleLaunch() {
     setSubmitting(true);
     setError(null);
     try {
-      const payload = { project_id: 1, theme: form.theme, goals: form.goals, audience: form.audience, constraints: form.constraints };
+      const theme = form.theme.trim();
+      const goals =
+        form.goals.trim() || "Generate a complete launch-ready hackathon campaign package.";
+      const audience =
+        form.audience.trim() ||
+        "builders, students, sponsors, mentors, judges, and community partners";
+      const constraints = normalizeFormConstraints();
+      const payload = { project_id: 1, theme, goals, audience, constraints };
       const res = await api.launchEvent(payload);
-      addRecentMission({
+      const mission = {
         id: res.event_id,
         runId: res.run_id,
-        theme: form.theme,
-        goals: form.goals,
-        audience: form.audience,
-        constraints: form.constraints,
+        theme,
+        goals,
+        audience,
+        constraints,
         status: res.status || "planning",
         createdAt: new Date().toISOString(),
         progress: {},
-      });
+      };
+      setCurrent(mission);
+      addRecentMission(mission);
       router.push(`/agent-monitor?event_id=${res.event_id}`);
     } catch (err) {
       setError(err.message || t("createEvent.launchFailed"));
@@ -133,10 +159,11 @@ export default function EventForm() {
                 type="number"
                 className="input"
                 value={form.constraints.budget_inr}
-                onChange={(e) => setConstraint("budget_inr", Number(e.target.value))}
+                onChange={(e) => setConstraint("budget_inr", e.target.value)}
+                onBlur={() => setConstraint("budget_inr", budgetInr)}
               />
               <span style={{ fontSize: 14, color: "var(--text-dim)" }}>
-                {formatCurrencyINR(form.constraints.budget_inr)}
+                {formatCurrencyINR(budgetInr)}
               </span>
             </div>
             <div className="grid-2">
@@ -144,10 +171,16 @@ export default function EventForm() {
                 <label className="label">{t("createEvent.duration")}</label>
                 <input
                   type="number"
+                  min="1"
+                  max="730"
                   className="input"
                   value={form.constraints.duration_days}
-                  onChange={(e) => setConstraint("duration_days", Number(e.target.value))}
+                  onChange={(e) => setConstraint("duration_days", e.target.value)}
+                  onBlur={() => setConstraint("duration_days", durationDays)}
                 />
+                <span style={{ fontSize: 14, color: "var(--text-dim)" }}>
+                  1-730 {t("common.days")}
+                </span>
               </div>
               <div>
                 <label className="label">{t("createEvent.teamSize")}</label>
@@ -155,7 +188,8 @@ export default function EventForm() {
                   type="number"
                   className="input"
                   value={form.constraints.team_size}
-                  onChange={(e) => setConstraint("team_size", Number(e.target.value))}
+                  onChange={(e) => setConstraint("team_size", e.target.value)}
+                  onBlur={() => setConstraint("team_size", teamSize)}
                 />
               </div>
             </div>
@@ -179,15 +213,15 @@ export default function EventForm() {
               </div>
               <div className="kv">
                 <dt>{t("createEvent.budget")}</dt>
-                <dd>{formatCurrencyINR(form.constraints.budget_inr)}</dd>
+                <dd>{formatCurrencyINR(budgetInr)}</dd>
               </div>
               <div className="kv">
                 <dt>{t("createEvent.duration")}</dt>
-                <dd>{form.constraints.duration_days} {t("common.days")}</dd>
+                <dd>{durationDays} {t("common.days")}</dd>
               </div>
               <div className="kv">
                 <dt>{t("createEvent.teamSize")}</dt>
-                <dd>{form.constraints.team_size}</dd>
+                <dd>{teamSize}</dd>
               </div>
             </dl>
           </div>
@@ -225,4 +259,11 @@ export default function EventForm() {
       </div>
     </div>
   );
+}
+
+function clampNumber(value, min, max, fallback) {
+  if (value === "") return fallback;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(min, Math.min(max, number));
 }

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import create_access_token, hash_password
+from app.core.auth import create_access_token, get_optional_auth_claims, hash_password
 from app.db.models import User
 from app.db.session import get_db
 from app.models.user import UserCreate, UserRead
@@ -33,7 +35,10 @@ async def create_user(payload: UserCreate, db: AsyncSession = Depends(get_db)) -
 
 
 @router.get("", response_model=list[UserRead])
-async def list_users(db: AsyncSession = Depends(get_db)) -> list[User]:
+async def list_users(
+    _claims: dict[str, Any] | None = Depends(get_optional_auth_claims),
+    db: AsyncSession = Depends(get_db),
+) -> list[User]:
     """List users for local MVP administration."""
 
     result = await db.execute(select(User).order_by(User.created_at.desc()).limit(25))
@@ -41,7 +46,11 @@ async def list_users(db: AsyncSession = Depends(get_db)) -> list[User]:
 
 
 @router.post("/{user_id}/token")
-async def issue_token(user_id: int, db: AsyncSession = Depends(get_db)) -> dict[str, str]:
+async def issue_token(
+    user_id: int,
+    _claims: dict[str, Any] | None = Depends(get_optional_auth_claims),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
     """Issue a development JWT for an existing user."""
 
     user = await db.get(User, user_id)

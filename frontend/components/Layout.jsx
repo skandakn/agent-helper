@@ -1,20 +1,25 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
+import { SignInButton, SignUpButton, SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 import {
   LayoutDashboard,
   Rocket,
   Megaphone,
   Activity,
   Database,
+  MessagesSquare,
   BarChart3,
   Settings as SettingsIcon,
   Menu,
   X,
+  LogIn,
+  UserPlus,
 } from "lucide-react";
 import { api } from "../services/api";
 import { useTranslation } from "../lib/i18n/context";
 import LanguageSwitcher from "./LanguageSwitcher";
+import { clerkFrontendConfigured } from "../lib/auth";
 
 const NAV_KEYS = [
   { code: "00", href: "/dashboard", icon: LayoutDashboard, labelKey: "nav.dashboard", titleKey: "nav.dashboard" },
@@ -22,13 +27,56 @@ const NAV_KEYS = [
   { code: "02", href: "/campaign-builder", icon: Megaphone, labelKey: "nav.campaignBuilder", titleKey: "nav.campaignBuilder" },
   { code: "03", href: "/agent-monitor", icon: Activity, labelKey: "nav.agentMonitor", titleKey: "nav.agentMonitor" },
   { code: "04", href: "/memory-explorer", icon: Database, labelKey: "nav.memoryExplorer", titleKey: "nav.memoryExplorer" },
-  { code: "05", href: "/analytics", icon: BarChart3, labelKey: "nav.analytics", titleKey: "nav.analytics" },
-  { code: "06", href: "/settings", icon: SettingsIcon, labelKey: "nav.settings", titleKey: "nav.settings" },
+  { code: "05", href: "/message-generator", icon: MessagesSquare, labelKey: "nav.messageGenerator", titleKey: "nav.messageGenerator" },
+  { code: "06", href: "/analytics", icon: BarChart3, labelKey: "nav.analytics", titleKey: "nav.analytics" },
+  { code: "07", href: "/settings", icon: SettingsIcon, labelKey: "nav.settings", titleKey: "nav.settings" },
 ];
+
+const EXTRA_NAV_LABELS = {
+  hi: { "nav.messageGenerator": "संदेश जनरेटर" },
+  kn: { "nav.messageGenerator": "ಸಂದೇಶ ಜನರೇಟರ್" },
+  te: { "nav.messageGenerator": "సందేశ జనరేటర్" },
+  ta: { "nav.messageGenerator": "செய்தி உருவாக்கி" },
+  ml: { "nav.messageGenerator": "സന്ദേശ ജനറേറ്റർ" },
+  ur: { "nav.messageGenerator": "پیغام جنریٹر" },
+};
+
+function AccountControls() {
+  if (!clerkFrontendConfigured) {
+    return (
+      <Link className="btn btn-ghost btn-sm" href="/sign-in">
+        <LogIn size={15} />
+        Auth setup
+      </Link>
+    );
+  }
+
+  return (
+    <div className="account-controls">
+      <SignedOut>
+        <SignInButton mode="modal">
+          <button className="btn btn-ghost btn-sm" type="button">
+            <LogIn size={15} />
+            Sign in
+          </button>
+        </SignInButton>
+        <SignUpButton mode="modal">
+          <button className="btn btn-primary btn-sm" type="button">
+            <UserPlus size={15} />
+            Sign up
+          </button>
+        </SignUpButton>
+      </SignedOut>
+      <SignedIn>
+        <UserButton afterSignOutUrl="/sign-in" />
+      </SignedIn>
+    </div>
+  );
+}
 
 export default function Layout({ children }) {
   const router = useRouter();
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const [online, setOnline] = useState(null);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -73,7 +121,7 @@ export default function Layout({ children }) {
               <Link key={item.href} href={item.href} className={`nav-item ${active ? "active" : ""}`}>
                 <span className="nav-code">{item.code}</span>
                 <Icon className="nav-icon" strokeWidth={2} />
-                <span>{t(item.labelKey)}</span>
+                <span>{navLabel(lang, item.labelKey, t)}</span>
               </Link>
             );
           })}
@@ -111,11 +159,14 @@ export default function Layout({ children }) {
               <div className="topbar-eyebrow">
                 {activeItem ? `${t("layout.step")} ${activeItem.code}` : t("layout.launchControl")}
               </div>
-              <div className="topbar-title">{activeItem ? t(activeItem.titleKey) : t("layout.launchControl")}</div>
+              <div className="topbar-title">
+                {activeItem ? navLabel(lang, activeItem.titleKey, t) : t("layout.launchControl")}
+              </div>
             </div>
           </div>
           <div className="topbar-actions">
             <LanguageSwitcher />
+            <AccountControls />
             <span className={`badge ${online === false ? "error" : "ok"}`}>
               <span className={`status-dot ${online === false ? "error" : "ok"}`} />
               {online === false ? t("layout.systemHold") : t("layout.systemNominal")}
@@ -126,4 +177,8 @@ export default function Layout({ children }) {
       </div>
     </div>
   );
+}
+
+function navLabel(lang, key, t) {
+  return EXTRA_NAV_LABELS[lang]?.[key] || t(key);
 }

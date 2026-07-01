@@ -5,7 +5,9 @@ services:
     environment:
       APP_ENV: prod
       LOG_LEVEL: INFO
-      AGENT_RUNTIME: gemini
+      AGENT_RUNTIME: auto
+      AUTO_CREATE_TABLES: "false"
+      BACKEND_AUTH_MODE: strict
 
   frontend:
     restart: unless-stopped

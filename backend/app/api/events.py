@@ -43,7 +43,7 @@ async def ensure_default_project(db: AsyncSession, user_id: int | None, project_
 
     if project_id:
         project = await db.get(Project, project_id)
-        if project:
+        if project and (user_id is None or project.user_id == user_id):
             return project
     default_user_id = user_id or 1
     user = await db.get(User, default_user_id)
@@ -64,6 +64,19 @@ async def ensure_default_project(db: AsyncSession, user_id: int | None, project_
     db.add(project)
     await db.flush()
     return project
+
+
+async def get_scoped_event(db: AsyncSession, event_id: int, user_id: int | None) -> Event:
+    """Return an event only if it belongs to the current user when authenticated."""
+
+    query = select(Event).where(Event.id == event_id)
+    if user_id is not None:
+        query = query.join(Project).where(Project.user_id == user_id)
+    result = await db.execute(query)
+    event = result.scalars().first()
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return event
 
 
 @router.post("/events/launch", response_model=EventLaunchResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -91,7 +104,7 @@ async def launch_event(
         event_id=event.id,
         input_data=req.model_dump(mode="json"),
         status=AgentRunStatus.pending,
-        runtime=settings.AGENT_RUNTIME,
+        runtime=settings.effective_agent_runtime,
     )
     db.add(run)
     db.add(AuditLog(agent_run_id=run.id, event_id=event.id, message="Launch workflow queued"))
@@ -111,21 +124,25 @@ async def launch_event(
 
 
 @router.get("/events/{event_id}/status", response_model=EventStatusResponse)
-async def get_event_status(event_id: int, db: AsyncSession = Depends(get_db)) -> EventStatusResponse:
+async def get_event_status(
+    event_id: int,
+    user_id: int | None = Depends(get_optional_user_id),
+    db: AsyncSession = Depends(get_db),
+) -> EventStatusResponse:
     """Return event status and coarse progress inferred from completed runs."""
 
-    event = await db.get(Event, event_id)
-    if event is None:
-        raise HTTPException(status_code=404, detail="Event not found")
+    event = await get_scoped_event(db, event_id, user_id)
     result = await db.execute(select(AgentRun).where(AgentRun.event_id == event_id))
     runs = result.scalars().all()
     progress: dict[str, Any] = {}
     for run in runs:
         if run.status == AgentRunStatus.completed:
-            progress[run.agent_name] = STAGE_PCTS.get(run.agent_name, 0)
+            progress[run.agent_name] = 100
         elif run.status == AgentRunStatus.failed:
             progress[run.agent_name] = STAGE_PCTS.get(run.agent_name, 0)
     if event.status == EventStatus.ready:
+        for stage in ("research", "branding", "content", "social_media", "operations", "critic"):
+            progress[stage] = 100
         progress["done"] = 100
     return EventStatusResponse(
         event_id=event_id,
@@ -137,12 +154,14 @@ async def get_event_status(event_id: int, db: AsyncSession = Depends(get_db)) ->
 
 
 @router.get("/events/{event_id}/output", response_model=EventOutputResponse)
-async def get_event_output(event_id: int, db: AsyncSession = Depends(get_db)) -> EventOutputResponse:
+async def get_event_output(
+    event_id: int,
+    user_id: int | None = Depends(get_optional_user_id),
+    db: AsyncSession = Depends(get_db),
+) -> EventOutputResponse:
     """Return the final package if available."""
 
-    event = await db.get(Event, event_id)
-    if event is None:
-        raise HTTPException(status_code=404, detail="Event not found")
+    event = await get_scoped_event(db, event_id, user_id)
     output: dict[str, Any] = event.final_package or {}
     if not output:
         result = await db.execute(
@@ -159,13 +178,12 @@ async def get_event_output(event_id: int, db: AsyncSession = Depends(get_db)) ->
 async def update_event_output(
     event_id: int,
     payload: EventOutputUpdate,
+    user_id: int | None = Depends(get_optional_user_id),
     db: AsyncSession = Depends(get_db),
 ) -> EventOutputResponse:
     """Persist user edits to the generated package."""
 
-    event = await db.get(Event, event_id)
-    if event is None:
-        raise HTTPException(status_code=404, detail="Event not found")
+    event = await get_scoped_event(db, event_id, user_id)
     output = dict(event.final_package or {})
     if payload.output is not None:
         output.update(payload.output)
@@ -179,18 +197,27 @@ async def update_event_output(
 
 
 @router.get("/events/{event_id}", response_model=EventRead)
-async def get_event(event_id: int, db: AsyncSession = Depends(get_db)) -> Event:
+async def get_event(
+    event_id: int,
+    user_id: int | None = Depends(get_optional_user_id),
+    db: AsyncSession = Depends(get_db),
+) -> Event:
     """Return an event record."""
 
-    result = await db.execute(
-        select(Event)
-        .options(selectinload(Event.agent_runs))
-        .where(Event.id == event_id)
-    )
-    event = result.scalar_one_or_none()
-    if event is None:
-        raise HTTPException(status_code=404, detail="Event not found")
-    return event
+    return await get_scoped_event(db, event_id, user_id)
+
+
+@router.delete("/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_event(
+    event_id: int,
+    user_id: int | None = Depends(get_optional_user_id),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete an event owned by the current user."""
+
+    event = await get_scoped_event(db, event_id, user_id)
+    await db.delete(event)
+    await db.commit()
 
 
 @router.get("/projects", response_model=list[ProjectRead])
@@ -213,15 +240,16 @@ async def list_projects(db: AsyncSession = Depends(get_db), user_id: int | None 
 
 
 @router.get("/events", response_model=list[EventRead])
-async def list_events(db: AsyncSession = Depends(get_db)) -> list[Event]:
+async def list_events(
+    user_id: int | None = Depends(get_optional_user_id),
+    db: AsyncSession = Depends(get_db),
+) -> list[Event]:
     """Return recent events."""
 
-    result = await db.execute(
-        select(Event)
-        .options(selectinload(Event.agent_runs))
-        .order_by(desc(Event.created_at))
-        .limit(25)
-    )
+    query = select(Event).join(Project).order_by(desc(Event.created_at)).limit(25)
+    if user_id is not None:
+        query = query.where(Project.user_id == user_id)
+    result = await db.execute(query)
     return list(result.scalars().all())
 
 

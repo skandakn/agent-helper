@@ -1,9 +1,9 @@
 """Optional Gemini/ADK integration points.
 
-The MVP workflow is deterministic by default so local Docker demos do not
-require paid API keys. When AGENT_RUNTIME=gemini and a key is configured, this
-module can be extended to execute real ADK agents while preserving the same
-Pydantic contracts used by the deterministic runtime.
+The workflow defaults to ``AGENT_RUNTIME=auto``. In auto mode a configured
+Gemini-compatible key activates model-backed generation, while local demos
+without keys keep the deterministic fallback. Every model response is validated
+against the same Pydantic contracts used by the fallback runtime.
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ async def maybe_generate_json_with_gemini(
     that fallback in the runtime metadata.
     """
 
-    if settings.AGENT_RUNTIME != "gemini" or not settings.gemini_key:
+    if settings.effective_agent_runtime != "gemini" or not settings.gemini_key:
         return None
     try:
         import google.generativeai as genai

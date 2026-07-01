@@ -139,7 +139,7 @@ class SocialMediaOutput(AgentContractModel):
     """Social media agent output."""
 
     campaign_name: str
-    duration_weeks: int = Field(ge=1, le=12)
+    duration_weeks: int = Field(ge=1, le=104)
     cadence: str
     posts: list[SocialPost] = Field(min_length=6)
     creative_direction: list[str] = Field(min_length=3)

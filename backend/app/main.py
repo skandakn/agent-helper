@@ -8,7 +8,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import agents, analytics, events, users
+from app.api import agents, analytics, auth, events, users
 from app.core.config import settings
 from app.db.session import init_db
 from app.services.memory import init_collections
@@ -30,6 +30,7 @@ app.add_middleware(
 app.include_router(events.router)
 app.include_router(agents.router)
 app.include_router(analytics.router)
+app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(ws_router)
 

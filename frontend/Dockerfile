@@ -4,12 +4,14 @@ WORKDIR /app
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
-COPY package.json package-lock.json* ./
-RUN npm install
+RUN corepack enable && corepack prepare pnpm@10.13.1 --activate
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
 
 COPY . .
 
 EXPOSE 3000
 
 # Bind to 0.0.0.0 so the container port mapping (3000:3000) actually reaches the dev server.
-CMD ["npm", "run", "dev", "--", "-p", "3000", "-H", "0.0.0.0"]
+CMD ["pnpm", "dev", "-p", "3000", "-H", "0.0.0.0"]

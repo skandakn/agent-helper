@@ -1,43 +1,43 @@
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 const EventContext = createContext(null);
 
-const RECENT_KEY = "launchcontrol:recent-missions";
+const RECENT_KEY_PREFIX = "launchcontrol:recent-missions";
 
-/**
- * Holds the mission (hackathon "event") currently being viewed, plus a
- * locally-cached list of missions launched from this browser. The cache
- * exists so the Dashboard has something real to show even if the backend
- * doesn't yet implement a `GET /events` listing endpoint (see README) —
- * it is never fabricated data, only what this browser actually launched.
- */
-export function EventProvider({ children }) {
+export function EventProvider({ children, userKey = "anonymous" }) {
   const [current, setCurrent] = useState(null);
   const [recent, setRecent] = useState([]);
   const [hydrated, setHydrated] = useState(false);
 
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(RECENT_KEY);
-      if (raw) setRecent(JSON.parse(raw));
-    } catch {
-      /* localStorage unavailable — degrade silently */
-    }
-    setHydrated(true);
-  }, []);
+  const storageKey = useMemo(() => `${RECENT_KEY_PREFIX}:${userKey || "anonymous"}`, [userKey]);
 
-  const persist = useCallback((next) => {
+  useEffect(() => {
+    setHydrated(false);
     try {
-      window.localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+      const raw = window.localStorage.getItem(storageKey);
+      setRecent(raw ? JSON.parse(raw) : []);
     } catch {
-      /* ignore quota / privacy-mode errors */
+      setRecent([]);
     }
-  }, []);
+    setCurrent(null);
+    setHydrated(true);
+  }, [storageKey]);
+
+  const persist = useCallback(
+    (next) => {
+      try {
+        window.localStorage.setItem(storageKey, JSON.stringify(next));
+      } catch {
+        /* ignore quota / privacy-mode errors */
+      }
+    },
+    [storageKey]
+  );
 
   const addRecentMission = useCallback(
     (mission) => {
       setRecent((prev) => {
-        const next = [mission, ...prev.filter((m) => m.id !== mission.id)].slice(0, 30);
+        const next = [mission, ...prev.filter((m) => String(m.id) !== String(mission.id))].slice(0, 30);
         persist(next);
         return next;
       });
@@ -48,7 +48,7 @@ export function EventProvider({ children }) {
   const updateRecentMission = useCallback(
     (id, patch) => {
       setRecent((prev) => {
-        const next = prev.map((m) => (m.id === id ? { ...m, ...patch } : m));
+        const next = prev.map((m) => (String(m.id) === String(id) ? { ...m, ...patch } : m));
         persist(next);
         return next;
       });
@@ -56,14 +56,37 @@ export function EventProvider({ children }) {
     [persist]
   );
 
+  const removeRecentMission = useCallback(
+    (id) => {
+      setRecent((prev) => {
+        const next = prev.filter((m) => String(m.id) !== String(id));
+        persist(next);
+        return next;
+      });
+      setCurrent((prev) => (String(prev?.id) === String(id) ? null : prev));
+    },
+    [persist]
+  );
+
   const clearRecent = useCallback(() => {
     setRecent([]);
     persist([]);
+    setCurrent(null);
   }, [persist]);
 
   return (
     <EventContext.Provider
-      value={{ current, setCurrent, recent, hydrated, addRecentMission, updateRecentMission, clearRecent }}
+      value={{
+        current,
+        setCurrent,
+        recent,
+        hydrated,
+        addRecentMission,
+        updateRecentMission,
+        removeRecentMission,
+        clearRecent,
+        userKey,
+      }}
     >
       {children}
     </EventContext.Provider>
@@ -72,6 +95,6 @@ export function EventProvider({ children }) {
 
 export function useEventStore() {
   const ctx = useContext(EventContext);
-  if (!ctx) throw new Error("useEventStore must be used within an EventProvider");
+  if (!ctx) throw new Error("useEventStore must be used within EventProvider");
   return ctx;
 }

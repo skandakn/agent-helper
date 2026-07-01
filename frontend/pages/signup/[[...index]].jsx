@@ -7,9 +7,9 @@ export async function getServerSideProps() {
   };
 }
 
-export default function Index() {
+export default function SignupAlias() {
   return null;
 }
 
-Index.authPage = true;
-Index.publicPage = true;
+SignupAlias.authPage = true;
+SignupAlias.publicPage = true;

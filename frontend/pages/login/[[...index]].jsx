@@ -1,15 +1,15 @@
 export async function getServerSideProps() {
   return {
     redirect: {
-      destination: "/sign-up",
+      destination: "/sign-in",
       permanent: false,
     },
   };
 }
 
-export default function Index() {
+export default function LoginAlias() {
   return null;
 }
 
-Index.authPage = true;
-Index.publicPage = true;
+LoginAlias.authPage = true;
+LoginAlias.publicPage = true;

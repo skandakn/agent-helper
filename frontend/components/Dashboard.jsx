@@ -1,21 +1,26 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Plus, AlertTriangle, ArrowUpRight } from "lucide-react";
+import { Plus, AlertTriangle, ArrowUpRight, Trash2 } from "lucide-react";
 import { api } from "../services/api";
 import { useEventStore } from "../store/event";
 import { STAGES, formatDate } from "../lib/stages";
 import { useTranslation } from "../lib/i18n/context";
 import { BarChart, Sparkline, StatRing, CHART_COLORS } from "./Charts";
+import { localizeText } from "./JsonBlock";
 
 export default function Dashboard() {
-  const { t } = useTranslation();
-  const { recent, hydrated } = useEventStore();
+  const { t, lang } = useTranslation();
+  const { recent, hydrated, removeRecentMission, userKey } = useEventStore();
   const [remote, setRemote] = useState(null);
   const [remoteError, setRemoteError] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => {
     let mounted = true;
+    setLoading(true);
+    setRemote(null);
+    setRemoteError(null);
     api
       .listEvents()
       .then((data) => mounted && setRemote(Array.isArray(data) ? data : data?.events || null))
@@ -24,12 +29,12 @@ export default function Dashboard() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [userKey]);
 
   const missions = remote && remote.length ? remote : recent;
   const showingLocalOnly = !remote || remote.length === 0;
 
-  const activeCount = missions.filter((m) => m.status === "planning").length;
+  const activeCount = missions.filter((m) => ["planning", "running", "reviewing"].includes(m.status)).length;
   const completedCount = missions.filter((m) => m.status === "ready" || m.status === "launched").length;
   const avgProgress = missions.length
     ? Math.round(
@@ -57,8 +62,25 @@ export default function Dashboard() {
   }
 
   function statusBadge(status) {
-    const map = { planning: "running", ready: "info", launched: "ok", draft: "" };
+    const map = { planning: "running", running: "running", reviewing: "warn", ready: "info", launched: "ok", failed: "error", draft: "" };
     return map[status] || "";
+  }
+
+  async function handleDeleteMission(id) {
+    if (!window.confirm(deleteCopy(lang, "confirm"))) return;
+    setDeletingId(id);
+    try {
+      await api.deleteEvent(id);
+    } catch (err) {
+      if (err?.status && err.status !== 404) {
+        alert(err.message || deleteCopy(lang, "failed"));
+        setDeletingId(null);
+        return;
+      }
+    }
+    removeRecentMission(id);
+    setRemote((prev) => (Array.isArray(prev) ? prev.filter((mission) => String(mission.id) !== String(id)) : prev));
+    setDeletingId(null);
   }
 
   return (
@@ -125,7 +147,16 @@ export default function Dashboard() {
       ) : (
         <div className="grid-cards">
           {missions.map((m) => (
-            <MissionCard key={m.id} mission={m} t={t} statusLabel={statusLabel} statusBadge={statusBadge} />
+            <MissionCard
+              key={m.id}
+              mission={m}
+              t={t}
+              lang={lang}
+              statusLabel={statusLabel}
+              statusBadge={statusBadge}
+              deleting={String(deletingId) === String(m.id)}
+              onDelete={handleDeleteMission}
+            />
           ))}
         </div>
       )}
@@ -133,19 +164,45 @@ export default function Dashboard() {
   );
 }
 
-function MissionCard({ mission, t, statusLabel, statusBadge }) {
+function MissionCard({ mission, t, lang, statusLabel, statusBadge, deleting, onDelete }) {
   const progress = mission.progress || {};
+  const theme = localizeText(mission.theme || t("dashboard.untitled"), lang);
+  const brief = missionCardBrief(mission, lang, t);
 
   return (
-    <Link href={`/agent-monitor?event_id=${mission.id}`} className="panel panel-pad panel-colorful" style={{ display: "block" }}>
+    <div className="panel panel-pad panel-colorful" style={{ display: "block" }}>
       <div className="row-between" style={{ marginBottom: 14 }}>
         <span className="eyebrow">{t("dashboard.mission")} #{mission.id}</span>
-        <span className={`badge ${statusBadge(mission.status)}`}>{statusLabel(mission.status)}</span>
+        <div className="row" style={{ gap: 8 }}>
+          <span className={`badge ${statusBadge(mission.status)}`}>{statusLabel(mission.status)}</span>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            disabled={deleting}
+            title={deleteCopy(lang, "delete")}
+            aria-label={deleteCopy(lang, "delete")}
+            onClick={() => onDelete(mission.id)}
+            style={{ padding: 7, color: "var(--error)" }}
+          >
+            <Trash2 size={15} />
+          </button>
+        </div>
       </div>
 
-      <h3 style={{ fontSize: 19, marginBottom: 8 }}>{mission.theme || t("dashboard.untitled")}</h3>
-      <p style={{ fontSize: 15, color: "var(--text-muted)", marginBottom: 18, minHeight: 36 }}>
-        {mission.goals || mission.audience || t("dashboard.noBrief")}
+      <h3 style={{ fontSize: 19, marginBottom: 8 }}>{theme}</h3>
+      <p
+        style={{
+          fontSize: 15,
+          color: "var(--text-muted)",
+          marginBottom: 18,
+          minHeight: 36,
+          display: "-webkit-box",
+          WebkitLineClamp: 5,
+          WebkitBoxOrient: "vertical",
+          overflow: "hidden",
+        }}
+      >
+        {brief}
       </p>
 
       <div className="row" style={{ gap: 6, marginBottom: 16 }}>
@@ -165,12 +222,45 @@ function MissionCard({ mission, t, statusLabel, statusBadge }) {
 
       <div className="row-between" style={{ fontSize: 14, color: "var(--text-dim)" }}>
         <span className="mono">{formatDate(mission.createdAt || mission.created_at)}</span>
-        <span className="row" style={{ gap: 5, color: "var(--text-muted)" }}>
+        <Link href={`/agent-monitor?event_id=${mission.id}`} className="row" style={{ gap: 5, color: "var(--text-muted)" }}>
           {t("common.openMonitor")} <ArrowUpRight size={14} />
-        </span>
+        </Link>
       </div>
-    </Link>
+    </div>
   );
+}
+
+function deleteCopy(lang, key) {
+  const labels = {
+    en: { delete: "Delete mission", confirm: "Delete this mission? This cannot be undone.", failed: "Could not delete this mission." },
+    hi: { delete: "मिशन हटाएं", confirm: "यह मिशन हटाएं? इसे वापस नहीं किया जा सकता।", failed: "मिशन हटाया नहीं जा सका।" },
+    kn: { delete: "ಮಿಷನ್ ಅಳಿಸಿ", confirm: "ಈ ಮಿಷನ್ ಅಳಿಸಬೇಕೇ? ಇದನ್ನು ಹಿಂದಿರುಗಿಸಲಾಗುವುದಿಲ್ಲ.", failed: "ಮಿಷನ್ ಅಳಿಸಲಾಗಲಿಲ್ಲ." },
+    te: { delete: "మిషన్ తొలగించు", confirm: "ఈ మిషన్‌ను తొలగించాలా? దీన్ని తిరిగి తీసుకురాలేరు.", failed: "మిషన్‌ను తొలగించలేకపోయాం." },
+    ta: { delete: "மிஷனை நீக்கு", confirm: "இந்த மிஷனை நீக்கவா? இதை மீண்டும் பெற முடியாது.", failed: "மிஷனை நீக்க முடியவில்லை." },
+    ml: { delete: "മിഷൻ ഇല്ലാതാക്കുക", confirm: "ഈ മിഷൻ ഇല്ലാതാക്കണോ? ഇത് തിരികെ കൊണ്ടുവരാൻ കഴിയില്ല.", failed: "മിഷൻ ഇല്ലാതാക്കാൻ കഴിഞ്ഞില്ല." },
+    ur: { delete: "مشن حذف کریں", confirm: "کیا یہ مشن حذف کریں؟ اسے واپس نہیں کیا جا سکتا۔", failed: "مشن حذف نہیں ہو سکا۔" },
+  };
+  return labels[lang]?.[key] || labels.en[key];
+}
+
+function missionCardBrief(mission, lang, t) {
+  const theme = localizeText(mission.theme || t("dashboard.untitled"), lang);
+  const audience = mission.audience ? localizeText(mission.audience, lang) : "";
+  const days = mission.constraints?.duration_days;
+  const dayText = days ? `${days} ${t("common.days")}` : "";
+  const details = [audience, dayText].filter(Boolean).join(" · ");
+
+  const summaries = {
+    hi: `${theme} के लिए लॉन्च पैकेज, जिसमें शोध, ब्रांडिंग, कंटेंट, सोशल अभियान और संचालन योजना शामिल है।${details ? ` ${details}` : ""}`,
+    kn: `${theme}ಗಾಗಿ ಸಂಶೋಧನೆ, ಬ್ರಾಂಡಿಂಗ್, ವಿಷಯ, ಸಾಮಾಜಿಕ ಅಭಿಯಾನ ಮತ್ತು ಕಾರ್ಯಾಚರಣೆ ಯೋಜನೆಯೊಂದಿಗೆ ಪೂರ್ಣ ಲಾಂಚ್ ಪ್ಯಾಕೇಜ್.${details ? ` ${details}` : ""}`,
+    te: `${theme} కోసం పరిశోధన, బ్రాండింగ్, కంటెంట్, సోషల్ క్యాంపెయిన్ మరియు ఆపరేషన్స్ ప్లాన్‌తో పూర్తి లాంచ్ ప్యాకేజీ.${details ? ` ${details}` : ""}`,
+    ta: `${theme}க்கான ஆராய்ச்சி, பிராண்டிங், உள்ளடக்கம், சமூக பிரச்சாரம் மற்றும் செயல்பாட்டு திட்டத்துடன் முழு லாஞ்ச் தொகுப்பு.${details ? ` ${details}` : ""}`,
+    ml: `${theme}ക്കായി ഗവേഷണം, ബ്രാൻഡിംഗ്, ഉള്ളടക്കം, സോഷ്യൽ ക്യാമ്പെയ്ൻ, പ്രവർത്തന പദ്ധതി എന്നിവയുള്ള പൂർണ്ണ ലോഞ്ച് പാക്കേജ്.${details ? ` ${details}` : ""}`,
+    ur: `${theme} کے لیے تحقیق، برانڈنگ، مواد، سوشل مہم اور آپریشنز پلان کے ساتھ مکمل لانچ پیکیج۔${details ? ` ${details}` : ""}`,
+  };
+
+  if (lang !== "en" && summaries[lang]) return summaries[lang];
+  return localizeText(mission.goals || mission.audience || t("dashboard.noBrief"), lang);
 }
 
 function SkeletonGrid() {

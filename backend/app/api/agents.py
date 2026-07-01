@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth import get_optional_auth_claims
 from app.db.models import AgentRun
 from app.db.session import get_db
 from app.models.agent import AgentRunOutput
@@ -15,7 +18,11 @@ router = APIRouter(tags=["agents"])
 
 
 @router.get("/agents/{run_id}/output", response_model=AgentRunOutput)
-async def get_agent_output(run_id: int, db: AsyncSession = Depends(get_db)) -> AgentRun:
+async def get_agent_output(
+    run_id: int,
+    _claims: dict[str, Any] | None = Depends(get_optional_auth_claims),
+    db: AsyncSession = Depends(get_db),
+) -> AgentRun:
     """Return a single agent run output."""
 
     run = await db.get(AgentRun, run_id)
@@ -27,6 +34,7 @@ async def get_agent_output(run_id: int, db: AsyncSession = Depends(get_db)) -> A
 @router.get("/agents", response_model=list[AgentRunOutput])
 async def list_agent_runs(
     event_id: int | None = None,
+    _claims: dict[str, Any] | None = Depends(get_optional_auth_claims),
     db: AsyncSession = Depends(get_db),
 ) -> list[AgentRun]:
     """List recent agent runs, optionally by event."""
@@ -43,6 +51,7 @@ async def memory_search(
     query: str = Query(min_length=1),
     collection: str | None = None,
     top_k: int = Query(default=5, ge=1, le=20),
+    _claims: dict[str, Any] | None = Depends(get_optional_auth_claims),
 ) -> dict:
     """Search long-term memory."""
 

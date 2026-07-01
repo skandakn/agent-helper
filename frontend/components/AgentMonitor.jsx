@@ -9,6 +9,19 @@ import { STAGES } from "../lib/stages";
 import { getPrefs } from "../lib/prefs";
 import { useTranslation } from "../lib/i18n/context";
 
+const STAGE_KEYS = STAGES.map((stage) => stage.key);
+
+function completeProgress() {
+  return Object.fromEntries(STAGE_KEYS.map((key) => [key, 100]));
+}
+
+function normalizeProgress(progress = {}, status) {
+  if (status === "ready" || status === "launched") return completeProgress();
+  return Object.fromEntries(
+    Object.entries(progress || {}).filter(([key]) => STAGE_KEYS.includes(key))
+  );
+}
+
 export default function AgentMonitor() {
   const router = useRouter();
   const { t } = useTranslation();
@@ -17,22 +30,33 @@ export default function AgentMonitor() {
 
   const [progress, setProgress] = useState({});
   const [stageData, setStageData] = useState({});
+  const [eventRecord, setEventRecord] = useState(null);
   const [finalPackage, setFinalPackage] = useState(null);
   const [link, setLink] = useState("connecting");
   const [expanded, setExpanded] = useState(null);
   const [failure, setFailure] = useState(null);
   const pollRef = useRef(null);
 
-  const mission = recent.find((m) => String(m.id) === String(event_id));
+  const mission = recent.find((m) => String(m.id) === String(event_id)) || eventRecord;
+
+  useEffect(() => {
+    if (!router.isReady || event_id || recent.length === 0) return;
+    router.replace(`/agent-monitor?event_id=${recent[0].id}`);
+  }, [router.isReady, event_id, recent, router]);
 
   useEffect(() => {
     if (!event_id) return;
 
     setProgress({});
     setStageData({});
+    setEventRecord(null);
     setFinalPackage(null);
     setFailure(null);
     setLink("connecting");
+
+    api.getEvent(event_id).then(setEventRecord).catch(() => {
+      /* local-only missions may not have a backend record yet */
+    });
 
     const handle = connectToEvent(event_id, {
       onOpen: () => setLink("live"),
@@ -40,7 +64,27 @@ export default function AgentMonitor() {
       onError: () => setLink((s) => (s === "live" ? "reconnecting" : s)),
       onMessage: (msg) => {
         if (!msg || !msg.stage) return;
-        setProgress((p) => ({ ...p, [msg.stage]: msg.pct }));
+
+        if (msg.stage === "done") {
+          const doneProgress = completeProgress();
+          setProgress((p) => ({ ...p, ...doneProgress }));
+          setFinalPackage(msg.data);
+          updateRecentMission(event_id, { status: "ready", progress: doneProgress });
+          if (getPrefs().notifyOnComplete && typeof window !== "undefined" && "Notification" in window) {
+            if (Notification.permission === "granted") {
+              new Notification(t("agentMonitor.packageCompiled"), {
+                body: `${t("dashboard.mission")} #${event_id}`,
+              });
+            }
+          }
+          return;
+        }
+
+        if (STAGE_KEYS.includes(msg.stage)) {
+          const pct = msg.status === "completed" ? 100 : Math.max(0, Math.min(99, Number(msg.pct) || 0));
+          setProgress((p) => ({ ...p, [msg.stage]: pct }));
+        }
+
         if (msg.data && Object.keys(msg.data).length) {
           setStageData((d) => ({ ...d, ...msg.data }));
         }
@@ -49,26 +93,28 @@ export default function AgentMonitor() {
           updateRecentMission(event_id, { status: "failed" });
           clearInterval(pollRef.current);
         }
-        if (msg.stage === "done") {
-          setFinalPackage(msg.data);
-          updateRecentMission(event_id, { status: "ready" });
-          if (getPrefs().notifyOnComplete && typeof window !== "undefined" && "Notification" in window) {
-            if (Notification.permission === "granted") {
-              new Notification(t("agentMonitor.packageCompiled"), {
-                body: `${t("dashboard.mission")} #${event_id}`,
-              });
-            }
-          }
-        }
       },
     });
 
-    pollRef.current = setInterval(async () => {
+    async function refreshStatus() {
       try {
         const status = await api.getEventStatus(event_id);
+        const nextProgress = normalizeProgress(status?.progress, status?.status);
+        if (Object.keys(nextProgress).length) {
+          setProgress((p) => ({ ...p, ...nextProgress }));
+          updateRecentMission(event_id, { status: status.status, progress: nextProgress });
+        } else if (status?.status) {
+          updateRecentMission(event_id, { status: status.status });
+        }
         if (status?.status === "ready" || status?.status === "launched") {
-          const output = await api.getEventOutput(event_id);
-          setFinalPackage(output);
+          const response = await api.getEventOutput(event_id);
+          const output = response?.output || response;
+          if (output && Object.keys(output).length) {
+            const doneProgress = completeProgress();
+            setFinalPackage(output);
+            setProgress((p) => ({ ...p, ...doneProgress }));
+            updateRecentMission(event_id, { status: status.status, progress: doneProgress });
+          }
           clearInterval(pollRef.current);
         } else if (status?.status === "failed") {
           setFailure(status.last_error || null);
@@ -78,7 +124,10 @@ export default function AgentMonitor() {
       } catch {
         /* status endpoint may not be ready yet */
       }
-    }, 6000);
+    }
+
+    refreshStatus();
+    pollRef.current = setInterval(refreshStatus, 6000);
 
     return () => {
       handle.close();
@@ -237,12 +286,12 @@ function NoMissionSelected({ missions, t }) {
 function StagePreview({ stageKey, data }) {
   const text = (() => {
     try {
-      if (stageKey === "research" && data.trends) return `${data.trends.length} trends · ${data.sponsors?.length || 0} sponsor leads · ${data.competitors?.length || 0} comparable events`;
-      if (stageKey === "branding" && data.selected_name) return `"${data.selected_name}" — ${data.tagline || ""}`;
-      if (stageKey === "content" && data.emails) return `${data.emails.length} email drafts · rubric + pitch deck outline ready`;
-      if (stageKey === "social_media" && data.weeks) return `${data.weeks.length}-week campaign drafted`;
-      if (stageKey === "operations" && data.tasks) return `${data.tasks.length} tasks · budget broken into ${Object.keys(data.budget || {}).length} categories`;
-      if (stageKey === "critic" && data.overall !== undefined) return `Overall score ${data.overall}/10 · ${data.approved ? "approved" : "needs another pass"}`;
+      if (stageKey === "research" && data.trends) return `${data.trends.length} trends - ${data.sponsor_targets?.length || 0} sponsor leads - ${data.competitors?.length || 0} comparable events`;
+      if (stageKey === "branding" && data.selected_name) return `"${data.selected_name}" - ${data.tagline || ""}`;
+      if (stageKey === "content" && data.outreach_emails) return `${data.outreach_emails.length} email drafts - rubric + pitch deck outline ready`;
+      if (stageKey === "social_media" && data.posts) return `${data.duration_weeks || 4}-week campaign drafted with ${data.posts.length} posts`;
+      if (stageKey === "operations" && data.tasks) return `${data.tasks.length} tasks - budget broken into ${data.budget_breakdown?.length || 0} categories`;
+      if (stageKey === "critic" && data.overall !== undefined) return `Overall score ${data.overall}/10 - ${data.approved ? "approved" : "needs another pass"}`;
     } catch {
       /* fall through */
     }

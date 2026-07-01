@@ -4,9 +4,9 @@ Production-oriented MVP for a multi-agent hackathon launch system. It takes a ha
 
 ## Architecture Summary
 
-- Frontend: Next.js pages for dashboard, event creation, live agent monitor, package editing, memory search, analytics, and settings.
-- Backend: FastAPI with async SQLAlchemy, PostgreSQL persistence, WebSocket progress updates, structured Pydantic contracts, and background workflow execution.
-- Agents: Orchestrator coordinates Research, Branding, Content, Social Media, Operations, and Critic agents. Each agent has narrow inputs/outputs and validated JSON contracts.
+- Frontend: Next.js pages for dashboard, event creation, live agent monitor, package editing, memory search, no-token message generation, analytics, settings, and Clerk auth.
+- Backend: FastAPI with async SQLAlchemy, PostgreSQL persistence, Alembic migrations, Clerk JWT verification, WebSocket progress updates, structured Pydantic contracts, and background workflow execution.
+- Agents: Orchestrator coordinates Research, Branding, Content, Social Media, Operations, and Critic agents. Each agent has narrow inputs/outputs and validated JSON contracts. `AGENT_RUNTIME=auto` uses Gemini when a Google key is configured and deterministic fallback when no key is present.
 - Memory: Qdrant collections for long-term memory, with a clearly labeled in-process fallback for local MVP runs.
 - Tooling: MCP servers expose Qdrant memory tools and safe utility tools.
 - Deployment: Docker Compose starts Postgres, Qdrant, FastAPI, Next.js, and MCP services.
@@ -16,6 +16,7 @@ Production-oriented MVP for a multi-agent hackathon launch system. It takes a ha
 ```text
 hackathon-agent/
   backend/
+    alembic/
     app/
       api/
       core/
@@ -85,7 +86,7 @@ Contracts live in `backend/app/models/agent.py`.
 
 1. MVP: deterministic local multi-agent workflow, persistence, WebSocket progress, editable package UI.
 2. Extended MVP: enable Qdrant, RAG ingest, richer memory tools, Gemini-backed generation, stronger review loop.
-3. Production hardening: strict auth, rate limits, prompt-injection defenses, Alembic migrations, observability, CI/CD, and optional A2A service split.
+3. Production hardening: strict auth, rate limits, prompt-injection defenses, observability, CI/CD, and optional A2A service split.
 
 ## Run Locally
 
@@ -98,7 +99,18 @@ Then open:
 - Frontend: `http://localhost:3000`
 - Backend docs: `http://localhost:8000/docs`
 
-The default runtime is deterministic and does not require a Gemini key. To use Gemini-backed generation, copy `.env.example` to `.env`, set `GEMINI_API_KEY`, and set `AGENT_RUNTIME=gemini`.
+The default runtime is `auto`: it uses Gemini-backed generation when `GEMINI_API_KEY` or `GOOGLE_API_KEY` is configured, and falls back to deterministic generation when no key exists. This keeps demos token-safe while making the Google integration active by default in configured environments.
+
+Clerk authentication is wired into the frontend at `/sign-in` and `/sign-up`. The frontend forwards Clerk session tokens to the backend, and FastAPI can verify them with `CLERK_ISSUER_URL` or `CLERK_JWKS_URL`. Use `BACKEND_AUTH_MODE=optional` for local demos and `BACKEND_AUTH_MODE=strict` for production.
+
+Production database migrations are included:
+
+```bash
+cd backend
+alembic upgrade head
+```
+
+See `docs/judging-readiness.md` for the scoring-focused implementation notes and `docs/security.md` for the production security checklist. GitHub Actions CI is included in `.github/workflows/ci.yml`.
 
 Frontend dependencies are locked with pnpm. For local frontend-only checks:
 

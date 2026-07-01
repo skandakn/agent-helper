@@ -42,6 +42,7 @@ const en = {
     campaignBuilder: "Campaign builder",
     agentMonitor: "Agent monitor",
     memoryExplorer: "Memory explorer",
+    messageGenerator: "Message generator",
     analytics: "Analytics",
     settings: "Settings",
   },
@@ -49,7 +50,7 @@ const en = {
     eyebrow: "MISSION LOG",
     title: "Every hackathon you've sent to orbit",
     localOnly:
-      "Showing missions launched from this browser only — the backend doesn't expose GET /events yet, so the dashboard can't pull a full mission roster.",
+      "Showing missions launched from this browser only because the backend mission roster is currently empty.",
     unreachable: " It also looks unreachable right now.",
     noMissions: "NO MISSIONS ON THE BOARD",
     emptyDesc: "Give the orchestrator a theme and it'll crew six agents to build your launch package.",
@@ -72,7 +73,7 @@ const en = {
     missionsByStatus: "MISSIONS BY STATUS",
     backendAnalytics: "BACKEND ANALYTICS",
     noBackend:
-      "No backend analytics yet — once GET /analytics/summary is implemented, cost, latency and run-count metrics will show up here.",
+      "Backend analytics are unreachable right now. Start the backend and refresh this view.",
     noMissions: "No missions launched from this browser yet.",
     stageChart: "Stage completion chart",
     statusChart: "Status distribution",
@@ -146,6 +147,19 @@ const en = {
     search: "Search memory",
     noResults: "No results yet — try a query above.",
     collection: "Collection",
+  },
+  messageGenerator: {
+    eyebrow: "SOCIAL DISTRIBUTION",
+    title: "Generate LinkedIn and WhatsApp copy",
+    subtitle:
+      "Reusable posts and short messages built from the selected mission package. This uses local templates, so it does not spend Gemini or Google API tokens.",
+    mission: "Mission",
+    linkedin: "LinkedIn",
+    whatsapp: "WhatsApp",
+    refresh: "Refresh variants",
+    noTokens: "NO AI TOKENS USED",
+    noMission: "Launch a mission first, then generate posts and messages from its campaign package.",
+    packageFallback: "Could not load the full package yet. Drafts are using the mission brief as a fallback.",
   },
   settings: {
     eyebrow: "SETTINGS",
@@ -343,7 +357,7 @@ const hi = {
     operations: { label: "संचालन", verb: "रनशीट निर्माण" },
     critic: { label: "समीक्षक", verb: "पैकेज समीक्षा" },
   },
-  status: { draft: "ड्राफ्ट", planning: "प्रगति में", running: "चल रहा है", reviewing: "समीक्षा जारी", ready: "तैयार", launched: "लॉन्च", failed: "विफल", unknown: "अज्ञात" },
+  status: { draft: "ड्राफ्ट", planning: "प्रगति में", ready: "तैयार", launched: "लॉन्च", unknown: "अज्ञात" },
   collections: {
     event_templates: "इवेंट टेम्पलेट",
     sponsor_templates: "प्रायोजक टेम्पलेट",
@@ -428,7 +442,7 @@ const kn = {
     content: { label: "ವಿಷಯ", verb: "ಕಾಪಿ ರಚನೆ" }, social_media: { label: "ಸಾಮಾಜಿಕ", verb: "ಪ್ರಚಾರ ಯೋಜನೆ" },
     operations: { label: "ಕಾರ್ಯಾಚರಣೆ", verb: "ರನ್‌ಶೀಟ್ ನಿರ್ಮಾಣ" }, critic: { label: "ವಿಮರ್ಶಕ", verb: "ಪ್ಯಾಕೇಜ್ ಪರಿಶೀಲನೆ" },
   },
-  status: { draft: "ಕರಡು", planning: "ಪ್ರಗತಿಯಲ್ಲಿ", running: "ಚಾಲನೆಯಲ್ಲಿದೆ", reviewing: "ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ", ready: "ಸಿದ್ಧ", launched: "ಲಾಂಚ್", failed: "ವಿಫಲವಾಗಿದೆ", unknown: "ಅಜ್ಞಾತ" },
+  status: { draft: "ಕರಡು", planning: "ಪ್ರಗತಿಯಲ್ಲಿ", ready: "ಸಿದ್ಧ", launched: "ಲಾಂಚ್", unknown: "ಅಜ್ಞಾತ" },
   collections: {
     event_templates: "ಈವೆಂಟ್ ಟೆಂಪ್ಲೇಟ್‌ಗಳು", sponsor_templates: "ಪ್ರಾಯೋಜಕ ಟೆಂಪ್ಲೇಟ್‌ಗಳು",
     marketing_assets: "ಮಾರ್ಕೆಟಿಂಗ್ ಆಸ್ತಿಗಳು", campaign_history: "ಪ್ರಚಾರ ಇತಿಹಾಸ", user_preferences: "ಬಳಕೆದಾರ ಆದ್ಯತೆಗಳು",
@@ -510,7 +524,7 @@ const te = {
     content: { label: "కంటెంట్", verb: "కాపీ రచన" }, social_media: { label: "సోషల్", verb: "ప్రచార ప్రణాళిక" },
     operations: { label: "ఆపరేషన్స్", verb: "రన్‌షీట్ నిర్మాణం" }, critic: { label: "క్రిటిక్", verb: "ప్యాకేజీ సమీక్ష" },
   },
-  status: { draft: "డ్రాఫ్ట్", planning: "ప్రగతిలో", running: "నడుస్తోంది", reviewing: "సమీక్షిస్తోంది", ready: "సిద్ధం", launched: "లాంచ్", failed: "విఫలమైంది", unknown: "తెలియదు" },
+  status: { draft: "డ్రాఫ్ట్", planning: "ప్రగతిలో", ready: "సిద్ధం", launched: "లాంచ్", unknown: "తెలియదు" },
   collections: {
     event_templates: "ఈవెంట్ టెంప్లేట్‌లు", sponsor_templates: "స్పాన్సర్ టెంప్లేట్‌లు",
     marketing_assets: "మార్కెటింగ్ ఆస్తులు", campaign_history: "ప్రచార చరిత్ర", user_preferences: "వినియోగదారు ప్రాధాన్యతలు",
@@ -592,7 +606,7 @@ const ta = {
     content: { label: "உள்ளடக்கம்", verb: "நகல் எழுதுதல்" }, social_media: { label: "சமூகம்", verb: "பிரச்சார திட்டமிடல்" },
     operations: { label: "செயல்பாடுகள்", verb: "ரன்‌ஷீட் உருவாக்கம்" }, critic: { label: "விமர்சகர்", verb: "தொகுப்பு மதிப்பாய்வு" },
   },
-  status: { draft: "வரைவு", planning: "நடைபெறுகிறது", running: "இயங்குகிறது", reviewing: "மதிப்பாய்வு செய்யப்படுகிறது", ready: "தயார்", launched: "வெளியிடப்பட்டது", failed: "தோல்வியடைந்தது", unknown: "தெரியாது" },
+  status: { draft: "வரைவு", planning: "நடைபெறுகிறது", ready: "தயார்", launched: "வெளியிடப்பட்டது", unknown: "தெரியாது" },
   collections: {
     event_templates: "நிகழ்வு வார்ப்புருக்கள்", sponsor_templates: "ஆதரவாளர் வார்ப்புருக்கள்",
     marketing_assets: "சந்தைப்படுத்தல் சொத்துக்கள்", campaign_history: "பிரச்சார வரலாறு", user_preferences: "பயனர் விருப்பங்கள்",
@@ -674,7 +688,7 @@ const ml = {
     content: { label: "ഉള്ളടക്കം", verb: "കോപ്പി രചന" }, social_media: { label: "സോഷ്യൽ", verb: "കാമ്പെയ്ൻ ആസൂത്രണം" },
     operations: { label: "പ്രവർത്തനങ്ങൾ", verb: "റൺഷീറ്റ് നിർമ്മാണം" }, critic: { label: "ക്രിട്ടിക്", verb: "പാക്കേജ് അവലോകനം" },
   },
-  status: { draft: "ഡ്രാഫ്റ്റ്", planning: "പുരോഗതിയിൽ", running: "പ്രവർത്തിക്കുന്നു", reviewing: "അവലോകനം ചെയ്യുന്നു", ready: "തയ്യാർ", launched: "ലോഞ്ച്", failed: "പരാജയപ്പെട്ടു", unknown: "അജ്ഞാതം" },
+  status: { draft: "ഡ്രാഫ്റ്റ്", planning: "പുരോഗതിയിൽ", ready: "തയ്യാർ", launched: "ലോഞ്ച്", unknown: "അജ്ഞാതം" },
   collections: {
     event_templates: "ഇവന്റ് ടെംപ്ലേറ്റുകൾ", sponsor_templates: "സ്പോൺസർ ടെംപ്ലേറ്റുകൾ",
     marketing_assets: "മാർക്കറ്റിംഗ് ആസ്തികൾ", campaign_history: "കാമ്പെയ്ൻ ചരിത്രം", user_preferences: "ഉപയോക്തൃ മുൻഗണനകൾ",
@@ -756,7 +770,7 @@ const ur = {
     content: { label: "مواد", verb: "کاپی لکھنا" }, social_media: { label: "سوشل", verb: "مہم کی منصوبہ بندی" },
     operations: { label: "آپریشنز", verb: "رن شیٹ بنانا" }, critic: { label: "تنقید کار", verb: "پیکج جائزہ" },
   },
-  status: { draft: "مسودہ", planning: "جاری", running: "جاری ہے", reviewing: "جائزہ لیا جا رہا ہے", ready: "تیار", launched: "لانچ", failed: "ناکام", unknown: "نامعلوم" },
+  status: { draft: "مسودہ", planning: "جاری", ready: "تیار", launched: "لانچ", unknown: "نامعلوم" },
   collections: {
     event_templates: "ایونٹ ٹیمپلیٹس", sponsor_templates: "اسپانسر ٹیمپلیٹس",
     marketing_assets: "مارکیٹنگ اثاثے", campaign_history: "مہم کی تاریخ", user_preferences: "صارف ترجیحات",

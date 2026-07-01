@@ -68,7 +68,7 @@ async def run_event_pipeline(event_id: int, orchestrator_run_id: int, brief_payl
                     event_id=event_id,
                     input_data=input_data,
                     status=AgentRunStatus.running,
-                    runtime=settings.AGENT_RUNTIME,
+                    runtime=settings.effective_agent_runtime,
                     started_at=_utc_now(),
                 )
                 persist_db.add(agent_run)
@@ -76,7 +76,7 @@ async def run_event_pipeline(event_id: int, orchestrator_run_id: int, brief_payl
             agent_run.input_data = input_data
             agent_run.output_data = output_data
             agent_run.status = AgentRunStatus(status)
-            agent_run.runtime = settings.AGENT_RUNTIME
+            agent_run.runtime = settings.effective_agent_runtime
             agent_run.completed_at = _utc_now() if status in {"completed", "failed"} else None
             agent_run.error = error
             persist_db.add(

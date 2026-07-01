@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import math
 from datetime import datetime, timezone
 
 from app.core.config import settings
@@ -346,19 +347,45 @@ async def run_content_agent(
         sections=[
             {
                 "title": "Why This Theme",
-                "body": research.recommended_positioning,
+                "body": (
+                    f"{research.recommended_positioning} The campaign should make the problem feel specific, "
+                    "show why the timing matters, and connect participants to practical datasets, mentors, and pilots."
+                ),
             },
             {
                 "title": "Who Should Join",
-                "body": f"Designed for {brief.audience}, including technical, design, product, and domain experts.",
+                "body": (
+                    f"Designed for {brief.audience}, including technical, design, product, and domain experts. "
+                    "Solo applicants can join team formation, while pre-formed teams can enter with a clear problem angle."
+                ),
             },
             {
                 "title": "What Teams Build",
-                "body": "Teams ship a working prototype, a short demo video, and a roadmap for real-world validation.",
+                "body": (
+                    "Teams ship a working prototype, a short demo video, a lightweight impact case, and a roadmap "
+                    "for real-world validation after demo day."
+                ),
             },
             {
                 "title": "Sponsor Value",
-                "body": "Sponsors receive challenge visibility, mentor touchpoints, recruiting access, and demo-day presence.",
+                "body": (
+                    "Sponsors receive challenge visibility, mentor touchpoints, recruiting access, demo-day presence, "
+                    "and a post-event report summarizing teams, prototypes, and follow-up opportunities."
+                ),
+            },
+            {
+                "title": "Challenge Tracks",
+                "body": (
+                    "Use three tracks: problem discovery, prototype build, and adoption planning. This keeps the "
+                    "brief accessible for beginners while still giving advanced teams enough depth."
+                ),
+            },
+            {
+                "title": "What Happens After",
+                "body": (
+                    "Winning teams enter a follow-up pathway with mentor check-ins, sponsor introductions, pilot "
+                    "readiness support, and a public recap that keeps momentum alive after the event."
+                ),
             },
         ],
         faq=[
@@ -366,6 +393,8 @@ async def run_content_agent(
             {"question": "What should teams submit?", "answer": "A prototype, demo narrative, impact case, and next-step plan."},
             {"question": "Is the event beginner friendly?", "answer": "Yes, tracks include starter prompts and mentor support."},
             {"question": "Can sponsors propose challenges?", "answer": "Yes, sponsor challenge prompts are reviewed for fairness and clarity."},
+            {"question": "How are winners selected?", "answer": "Judges score teams on problem relevance, prototype execution, feasibility, impact, and presentation clarity."},
+            {"question": "What support is available after demo day?", "answer": "Selected teams receive follow-up mentor sessions, sponsor introductions, and pilot planning guidance."},
         ],
     )
     emails = [
@@ -398,6 +427,16 @@ async def run_content_agent(
                 "We provide a structured rubric and a short briefing before demos."
             ),
             call_to_action="Confirm judging interest",
+        ),
+        EmailDraft(
+            audience="partners",
+            subject=f"Partner with {name}: help teams move from demo to adoption",
+            preview_text="A practical way to support builders, mentors, and real-world implementation.",
+            body=(
+                f"We are inviting community and ecosystem partners for {name}. Partners can contribute datasets, "
+                "problem statements, mentors, judging support, pilot pathways, or distribution to relevant builder communities."
+            ),
+            call_to_action="Discuss partnership fit",
         ),
     ]
     output = ContentOutput(
@@ -442,12 +481,30 @@ async def run_content_agent(
                 ],
             ),
             SponsorPitchSection(
+                slide_title="Impact and Measurement",
+                objective="Show how the event will prove value after demo day.",
+                talking_points=[
+                    "Prototype count and completion rate",
+                    "Mentor engagement and team follow-ups",
+                    "Sponsor report with project highlights and next-step opportunities",
+                ],
+            ),
+            SponsorPitchSection(
                 slide_title="Packages and Next Steps",
                 objective="Move sponsors to action.",
                 talking_points=[
                     "Lead sponsor",
                     "Track sponsor",
                     "Community partner",
+                ],
+            ),
+            SponsorPitchSection(
+                slide_title="Risk Controls",
+                objective="Make sponsors confident the program is responsibly managed.",
+                talking_points=[
+                    "Clear eligibility and judging rules",
+                    "Human review of all public claims",
+                    "Backup operations plan for submissions, streaming, and communications",
                 ],
             ),
         ],
@@ -457,6 +514,8 @@ async def run_content_agent(
             {"criterion": "Feasibility", "weight": "20%", "description": "Can be piloted after the event with realistic resources."},
             {"criterion": "Impact narrative", "weight": "15%", "description": "Explains who benefits and how success would be measured."},
             {"criterion": "Presentation clarity", "weight": "10%", "description": "Communicates the solution quickly and honestly."},
+            {"criterion": "Data or user grounding", "weight": "bonus", "description": "Uses real context, interviews, datasets, or field evidence to reduce guesswork."},
+            {"criterion": "Post-event readiness", "weight": "bonus", "description": "Identifies owners, blockers, and next steps for continuing beyond demo day."},
         ],
         risk_narrative=(
             "The main launch risk is overpromising the event scope. Keep sponsor claims tied to specific benefits, "
@@ -466,6 +525,8 @@ async def run_content_agent(
             {"type": "hero_copy", "title": "Landing hero", "content": landing.subheadline},
             {"type": "email_subject", "title": "Participant invite", "content": emails[0].subject},
             {"type": "rubric", "title": "Judging rubric", "content": "Five-part rubric for demo day."},
+            {"type": "sponsor_report", "title": "Post-event sponsor report outline", "content": "Summarize team count, prototype themes, mentor engagement, winners, and follow-up asks."},
+            {"type": "participant_brief", "title": "Team starter brief", "content": "Explain tracks, required submissions, judging rubric, demo format, and support channels."},
         ],
         memory_used=_memory_refs("marketing_assets", memories),
     )
@@ -496,6 +557,9 @@ async def run_social_media_agent(
 
     name = branding.selected_name
     theme_tag = re.sub(r"[^A-Za-z0-9]", "", _primary_theme(brief))[:28] or "Hackathon"
+    campaign_weeks = max(1, min(104, math.ceil(brief.constraints.duration_days / 7)))
+    middle_week = max(1, min(campaign_weeks, math.ceil(campaign_weeks / 2)))
+    late_week = max(1, min(campaign_weeks, campaign_weeks - 1))
     posts = [
         SocialPost(
             week=1,
@@ -512,28 +576,49 @@ async def run_social_media_agent(
             hashtags=[f"#{theme_tag}", "#BuildInPublic"],
         ),
         SocialPost(
-            week=2,
+            week=middle_week,
             channel="Instagram",
             objective="Explain who should apply",
             text=f"Designers, developers, researchers, and product thinkers: {name} has a track for you.",
             hashtags=[f"#{theme_tag}", "#StudentBuilders"],
         ),
         SocialPost(
-            week=2,
+            week=middle_week,
             channel="LinkedIn",
             objective="Sponsor credibility",
             text=f"Sponsors of {name} support a practical prototype pipeline, not a one-off logo placement.",
             hashtags=[f"#{theme_tag}", "#InnovationPrograms"],
         ),
         SocialPost(
-            week=3,
+            week=middle_week,
+            channel="Instagram",
+            objective="Mentor proof",
+            text=f"Meet the mentors helping teams turn {brief.theme} ideas into testable demos and next-step plans.",
+            hashtags=[f"#{theme_tag}", "#Mentorship", "#DemoReady"],
+        ),
+        SocialPost(
+            week=late_week,
+            channel="LinkedIn",
+            objective="Rubric clarity",
+            text=f"{name} teams will be judged on relevance, execution, feasibility, impact, and clarity. Build with the rubric in mind.",
+            hashtags=[f"#{theme_tag}", "#HackathonTips", "#DemoDay"],
+        ),
+        SocialPost(
+            week=late_week,
             channel="X",
             objective="Application urgency",
             text=f"Last call for {name}. Bring a problem, a skill, or just the curiosity to build.",
             hashtags=[f"#{theme_tag}", "#HackathonDeadline"],
         ),
         SocialPost(
-            week=4,
+            week=campaign_weeks,
+            channel="Instagram",
+            objective="Demo-day preview",
+            text=f"Demo day is where {name} teams show what they learned, built, tested, and want to pilot next.",
+            hashtags=[f"#{theme_tag}", "#DemoDay", "#Prototype"],
+        ),
+        SocialPost(
+            week=campaign_weeks,
             channel="LinkedIn",
             objective="Demo-day momentum",
             text=f"{name} demo day will spotlight prototypes with practical next steps and measurable impact.",
@@ -542,15 +627,17 @@ async def run_social_media_agent(
     ]
     output = SocialMediaOutput(
         campaign_name=f"{name} Launch Sprint",
-        duration_weeks=4,
+        duration_weeks=campaign_weeks,
         cadence="Three posts per week: one credibility post, one applicant-focused post, one sponsor/community post.",
         posts=posts,
         creative_direction=[
             "Use founder-style build notes rather than generic poster copy.",
             "Rotate between participant stories, mentor credibility, and challenge-track clarity.",
             "Keep every post anchored to one action: apply, sponsor, judge, or share.",
+            "Create one reusable carousel template for track explainer posts, mentor quotes, and demo-day reminders.",
+            "Use short videos for walkthroughs: problem statement, team formation, submission process, and judging criteria.",
         ],
-        memory_write_summary=f"Four-week campaign pattern for {name} with LinkedIn, X, and Instagram posts.",
+        memory_write_summary=f"{campaign_weeks}-week campaign pattern for {name} with LinkedIn, X, and Instagram posts.",
     )
     await remember(
         "campaign_history",
@@ -578,9 +665,17 @@ async def run_operations_agent(
         return generated
 
     budget = float(brief.constraints.budget or 50000)
+    duration_days = max(1, brief.constraints.duration_days)
+    prep_window = max(56, min(730, duration_days))
+    sponsor_due = max(42, round(prep_window * 0.75))
+    application_due = max(28, round(prep_window * 0.5))
+    dry_run_due = max(7, round(prep_window * 0.18))
+    follow_up_day = duration_days + 7
+    event_phase = "Event day" if duration_days == 1 else f"Program days 1-{duration_days}"
+    event_relative = "0" if duration_days == 1 else f"0 to +{duration_days - 1}"
     budget_lines = [
         BudgetLineItem(category="Venue and streaming", amount=round(budget * 0.22, 2), assumption="Hybrid setup with recording support."),
-        BudgetLineItem(category="Participant food and supplies", amount=round(budget * 0.24, 2), assumption="Two-day event with meals and maker supplies."),
+        BudgetLineItem(category="Participant food and supplies", amount=round(budget * 0.24, 2), assumption=f"{duration_days}-day program with meals, maker supplies, and participant support."),
         BudgetLineItem(category="Prizes and grants", amount=round(budget * 0.25, 2), assumption="Meaningful awards plus pilot support for winners."),
         BudgetLineItem(category="Marketing and design", amount=round(budget * 0.12, 2), assumption="Launch creative, paid boosts, and collateral."),
         BudgetLineItem(category="Mentors and operations buffer", amount=round(budget * 0.17, 2), assumption="Honoraria, incidentals, and contingency."),
@@ -589,61 +684,66 @@ async def run_operations_agent(
     output = OperationsOutput(
         timeline=[
             TimelineItem(
-                phase="T-minus 8 weeks",
-                relative_day="-56",
+                phase=f"T-minus {prep_window} days",
+                relative_day=f"-{prep_window}",
                 owner="Event lead",
                 deliverable="Finalize theme, budget, sponsor list, and launch page.",
                 exit_criteria="Public positioning and sponsor one-pager approved.",
             ),
             TimelineItem(
-                phase="T-minus 6 weeks",
-                relative_day="-42",
+                phase=f"T-minus {sponsor_due} days",
+                relative_day=f"-{sponsor_due}",
                 owner="Partnerships",
                 deliverable="Secure lead sponsors, mentors, and judge shortlist.",
                 exit_criteria="At least three sponsor conversations in active follow-up.",
             ),
             TimelineItem(
-                phase="T-minus 4 weeks",
-                relative_day="-28",
+                phase=f"T-minus {application_due} days",
+                relative_day=f"-{application_due}",
                 owner="Marketing",
                 deliverable="Open applications and publish challenge tracks.",
                 exit_criteria="Application funnel, FAQ, and social cadence live.",
             ),
             TimelineItem(
-                phase="T-minus 2 weeks",
-                relative_day="-14",
+                phase=f"T-minus {dry_run_due} days",
+                relative_day=f"-{dry_run_due}",
                 owner="Operations",
                 deliverable="Confirm venue, tooling, judging rubric, and run of show.",
                 exit_criteria="Dry run completed with all critical owners.",
             ),
             TimelineItem(
-                phase="Event weekend",
-                relative_day="0",
+                phase=event_phase,
+                relative_day=event_relative,
                 owner="Program manager",
-                deliverable="Kickoff, mentor blocks, build sprint, demos, judging, awards.",
+                deliverable="Kickoff, mentor blocks, build sprint, checkpoints, demos, judging, awards.",
                 exit_criteria="Winners selected and post-event follow-up scheduled.",
             ),
             TimelineItem(
                 phase="Post-event",
-                relative_day="+7",
+                relative_day=f"+{follow_up_day}",
                 owner="Community lead",
                 deliverable="Publish recap, sponsor report, and incubation next steps.",
                 exit_criteria="Sponsor report sent and project follow-ups booked.",
             ),
         ],
         tasks=[
-            OperationsTask(description="Approve final event name and landing page copy.", owner="Event lead", due_window="T-minus 8 weeks"),
-            OperationsTask(description="Create sponsor target list and outreach tracker.", owner="Partnerships", due_window="T-minus 7 weeks"),
-            OperationsTask(description="Publish application form and participant FAQ.", owner="Marketing", due_window="T-minus 4 weeks"),
-            OperationsTask(description="Recruit mentors and confirm office-hour schedule.", owner="Community", due_window="T-minus 3 weeks"),
-            OperationsTask(description="Run technical dry run for demo submissions and streaming.", owner="Operations", due_window="T-minus 1 week"),
+            OperationsTask(description="Approve final event name and landing page copy.", owner="Event lead", due_window=f"T-minus {prep_window} days"),
+            OperationsTask(description="Create sponsor target list and outreach tracker.", owner="Partnerships", due_window=f"T-minus {sponsor_due} days"),
+            OperationsTask(description="Publish application form and participant FAQ.", owner="Marketing", due_window=f"T-minus {application_due} days"),
+            OperationsTask(description="Recruit mentors and confirm office-hour schedule.", owner="Community", due_window=f"T-minus {max(14, dry_run_due * 2)} days"),
+            OperationsTask(description="Prepare starter resources, sample datasets, and challenge prompt sheets.", owner="Program manager", due_window=f"T-minus {application_due} days"),
+            OperationsTask(description="Confirm judging rubric, scoring tool, conflict-of-interest rules, and demo order.", owner="Judging lead", due_window=f"T-minus {max(7, dry_run_due)} days"),
+            OperationsTask(description="Run technical dry run for demo submissions and streaming.", owner="Operations", due_window=f"T-minus {dry_run_due} days"),
             OperationsTask(description="Prepare demo-day judging packet and scoring form.", owner="Program manager", due_window="T-minus 3 days"),
+            OperationsTask(description="Draft post-event recap, winner announcement, and sponsor report template.", owner="Marketing", due_window="T-plus 2 days"),
         ],
         staffing_plan=[
             "Event lead owns final decisions, sponsor commitments, and day-of escalation.",
             "Program manager owns run of show, judging flow, and participant communications.",
             "Marketing lead owns launch page, social cadence, email sends, and recap.",
             "Operations lead owns venue, tools, meals, streaming, and incident response.",
+            "Partnerships lead owns sponsor pipeline, mentor commitments, and partner reporting.",
+            "Judging lead owns rubric setup, judge briefing, scoring moderation, and winner validation.",
         ],
         budget_breakdown=budget_lines,
         budget_total=total,
@@ -651,6 +751,8 @@ async def run_operations_agent(
             f"Format: {brief.constraints.location} with clear remote participation expectations.",
             "Use one source of truth for schedule, mentor slots, submissions, and judging links.",
             "Create a 30-minute dry run for hosts, mentors, judges, and streaming support.",
+            "Publish a participant command center with FAQ, schedule, contacts, resources, and submission requirements.",
+            "Keep backup links for video, forms, chat, judging sheets, and sponsor handoff notes.",
         ],
         risks_and_mitigations=[
             {
@@ -664,6 +766,14 @@ async def run_operations_agent(
             {
                 "risk": "Day-of tooling failure",
                 "mitigation": "Maintain backup submission forms, offline judging sheets, and a comms channel.",
+            },
+            {
+                "risk": "Participant drop-off during a long program",
+                "mitigation": "Add weekly checkpoints, public progress prompts, mentor nudges, and small milestone rewards.",
+            },
+            {
+                "risk": "Judging inconsistency",
+                "mitigation": "Brief judges together, calibrate with one sample project, and moderate score outliers before awards.",
             },
         ],
     )
@@ -798,9 +908,11 @@ def compile_final_markdown(
 def runtime_note() -> str:
     """Return a user-facing runtime note for outputs and logs."""
 
-    if settings.AGENT_RUNTIME == "gemini" and settings.gemini_key:
-        return "Gemini runtime requested; deterministic fallback is used only if Gemini validation fails."
-    return "Deterministic MVP runtime. Set AGENT_RUNTIME=gemini and GEMINI_API_KEY for model-backed agents."
+    if settings.effective_agent_runtime == "gemini":
+        return "Gemini runtime active; deterministic fallback is used only if Gemini validation fails."
+    if settings.AGENT_RUNTIME == "auto":
+        return "Auto runtime is using deterministic fallback because no Gemini-compatible key is configured."
+    return "Deterministic runtime selected. Set AGENT_RUNTIME=auto with GEMINI_API_KEY or GOOGLE_API_KEY for model-backed agents."
 
 
 def now_utc() -> datetime:

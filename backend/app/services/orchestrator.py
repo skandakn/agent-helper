@@ -155,7 +155,7 @@ async def run_pipeline(
         final_package = LaunchPackage(
             event_id=event_id,
             generated_at=now_utc(),
-            runtime=settings.AGENT_RUNTIME,
+            runtime=settings.effective_agent_runtime,
             runtime_note=runtime_note(),
             research=research,
             branding=branding,
