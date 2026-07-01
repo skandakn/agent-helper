@@ -8,17 +8,17 @@ services:
     autoDeploy: true
     envVars:
       - key: APP_ENV
-        value: prod
+        value: "prod"
       - key: LOG_LEVEL
-        value: INFO
+        value: "INFO"
       - key: AUTO_CREATE_TABLES
-        value: true
+        value: "true"
       - key: BACKEND_AUTH_MODE
-        value: strict
+        value: "strict"
       - key: BACKEND_CORS_ORIGINS
-        value: https://agent-helper-sable.vercel.app
+        value: "https://agent-helper-sable.vercel.app"
       - key: CLERK_AUTHORIZED_PARTIES
-        value: https://agent-helper-sable.vercel.app
+        value: "https://agent-helper-sable.vercel.app"
       - key: CLERK_ISSUER_URL
         sync: false
       - key: CLERK_SECRET_KEY
