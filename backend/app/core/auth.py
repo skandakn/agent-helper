@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -17,6 +17,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
 _JWKS_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 _JWKS_TTL_SECONDS = 300
+CLIENT_ID_HEADER = "X-Launch-Client-Id"
 
 
 def hash_password(password: str) -> str:
@@ -115,11 +116,23 @@ async def decode_bearer_token(token: str) -> dict[str, Any]:
     raise JWTError("No configured verifier accepted this token")
 
 
+def _stable_hash_id(subject: str, base: int, span: int) -> int:
+    """Map an external subject to a stable positive integer range."""
+
+    digest = hashlib.sha256(subject.encode("utf-8")).hexdigest()
+    return base + (int(digest[:12], 16) % span)
+
+
 def _stable_external_user_id(subject: str) -> int:
     """Map an external Clerk subject to a stable positive local integer id."""
 
-    digest = hashlib.sha256(subject.encode("utf-8")).hexdigest()
-    return 100000 + (int(digest[:12], 16) % 900000000)
+    return _stable_hash_id(subject, 100000, 900000000)
+
+
+def _stable_client_user_id(client_id: str) -> int:
+    """Map an unauthenticated browser scope to a private local integer id."""
+
+    return _stable_hash_id(f"client:{client_id}", 1000000000, 1000000000)
 
 
 async def get_optional_auth_claims(
@@ -183,3 +196,17 @@ async def get_optional_user_id(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication token",
         ) from exc
+
+
+async def get_request_user_id(
+    request: Request,
+    user_id: int | None = Depends(get_optional_user_id),
+) -> int:
+    """Return a scoped user id for every user-facing data request."""
+
+    if user_id is not None:
+        return user_id
+    client_id = (request.headers.get(CLIENT_ID_HEADER) or "").strip()
+    if client_id:
+        return _stable_client_user_id(client_id[:256])
+    return 1

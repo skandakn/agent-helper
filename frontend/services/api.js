@@ -2,9 +2,42 @@ const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const STAGE_KEYS = ["research", "branding", "content", "social_media", "operations", "critic"];
 
 let authTokenProvider = null;
+let clientScope = "anonymous";
 
 export function setAuthTokenProvider(provider) {
   authTokenProvider = typeof provider === "function" ? provider : null;
+}
+
+export function setApiClientScope(scope) {
+  clientScope = sanitizeClientScope(scope || "anonymous");
+}
+
+function sanitizeClientScope(scope) {
+  return String(scope || "anonymous").replace(/[^a-zA-Z0-9:_-]/g, "_").slice(0, 160) || "anonymous";
+}
+
+function createClientId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function getClientId() {
+  const scope = sanitizeClientScope(clientScope);
+  if (typeof window === "undefined" || !window.localStorage) return scope;
+
+  const key = `launchcontrol:client-id:${scope}`;
+  try {
+    let id = window.localStorage.getItem(key);
+    if (!id) {
+      id = createClientId();
+      window.localStorage.setItem(key, id);
+    }
+    return `${scope}:${id}`;
+  } catch {
+    return scope;
+  }
 }
 
 function completeProgress() {
@@ -78,9 +111,6 @@ async function request(path, options = {}) {
   try {
     const token = authTokenProvider ? await authTokenProvider() : null;
     res = await fetchWithOptionalToken(path, options, token);
-    if (res.status === 401 && token) {
-      res = await fetchWithOptionalToken(path, options, null);
-    }
   } catch (err) {
     const e = new Error(`Couldn't reach the backend at ${BASE}. Is it running?`);
     e.cause = err;
@@ -112,7 +142,12 @@ async function request(path, options = {}) {
 function fetchWithOptionalToken(path, options, token) {
   const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
   return fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...authHeaders, ...(options.headers || {}) },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Launch-Client-Id": getClientId(),
+      ...authHeaders,
+      ...(options.headers || {}),
+    },
     ...options,
   });
 }

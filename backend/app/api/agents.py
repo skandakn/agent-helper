@@ -8,8 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import get_optional_auth_claims
-from app.db.models import AgentRun
+from app.core.auth import get_optional_auth_claims, get_request_user_id
+from app.db.models import AgentRun, Event, Project
 from app.db.session import get_db
 from app.models.agent import AgentRunOutput
 from app.services.memory import COLLECTIONS, search_memory
@@ -20,12 +20,18 @@ router = APIRouter(tags=["agents"])
 @router.get("/agents/{run_id}/output", response_model=AgentRunOutput)
 async def get_agent_output(
     run_id: int,
-    _claims: dict[str, Any] | None = Depends(get_optional_auth_claims),
+    user_id: int = Depends(get_request_user_id),
     db: AsyncSession = Depends(get_db),
 ) -> AgentRun:
     """Return a single agent run output."""
 
-    run = await db.get(AgentRun, run_id)
+    result = await db.execute(
+        select(AgentRun)
+        .join(Event, AgentRun.event_id == Event.id)
+        .join(Project, Event.project_id == Project.id)
+        .where(AgentRun.id == run_id, Project.user_id == user_id)
+    )
+    run = result.scalars().first()
     if run is None:
         raise HTTPException(status_code=404, detail="Agent run not found")
     return run
@@ -34,14 +40,21 @@ async def get_agent_output(
 @router.get("/agents", response_model=list[AgentRunOutput])
 async def list_agent_runs(
     event_id: int | None = None,
-    _claims: dict[str, Any] | None = Depends(get_optional_auth_claims),
+    user_id: int = Depends(get_request_user_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[AgentRun]:
     """List recent agent runs, optionally by event."""
 
-    query = select(AgentRun).order_by(desc(AgentRun.created_at)).limit(100)
+    query = (
+        select(AgentRun)
+        .join(Event, AgentRun.event_id == Event.id)
+        .join(Project, Event.project_id == Project.id)
+        .where(Project.user_id == user_id)
+        .order_by(desc(AgentRun.created_at))
+        .limit(100)
+    )
     if event_id is not None:
-        query = select(AgentRun).where(AgentRun.event_id == event_id).order_by(desc(AgentRun.created_at))
+        query = query.where(AgentRun.event_id == event_id)
     result = await db.execute(query)
     return list(result.scalars().all())
 

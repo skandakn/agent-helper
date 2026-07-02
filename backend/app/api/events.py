@@ -10,7 +10,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.auth import get_optional_user_id
+from app.core.auth import get_request_user_id
 from app.core.config import settings
 from app.db.models import AgentRun, AgentRunStatus, AuditLog, Event, EventStatus, Project, User
 from app.db.session import get_db
@@ -38,20 +38,19 @@ STAGE_PCTS = {
 }
 
 
-async def ensure_default_project(db: AsyncSession, user_id: int | None, project_id: int | None) -> Project:
+async def ensure_default_project(db: AsyncSession, user_id: int, project_id: int | None) -> Project:
     """Create or return a default MVP project."""
 
     if project_id:
         project = await db.get(Project, project_id)
-        if project and (user_id is None or project.user_id == user_id):
+        if project and project.user_id == user_id:
             return project
-    default_user_id = user_id or 1
-    user = await db.get(User, default_user_id)
+    user = await db.get(User, user_id)
     if user is None:
         user = User(
-            id=default_user_id,
+            id=user_id,
             name="Local Organizer",
-            email=f"local-organizer-{default_user_id}@example.com",
+            email=f"local-organizer-{user_id}@example.com",
             preferences={"runtime": "mvp"},
         )
         db.add(user)
@@ -66,12 +65,10 @@ async def ensure_default_project(db: AsyncSession, user_id: int | None, project_
     return project
 
 
-async def get_scoped_event(db: AsyncSession, event_id: int, user_id: int | None) -> Event:
-    """Return an event only if it belongs to the current user when authenticated."""
+async def get_scoped_event(db: AsyncSession, event_id: int, user_id: int) -> Event:
+    """Return an event only if it belongs to the current user."""
 
-    query = select(Event).where(Event.id == event_id)
-    if user_id is not None:
-        query = query.join(Project).where(Project.user_id == user_id)
+    query = select(Event).join(Project).where(Event.id == event_id, Project.user_id == user_id)
     result = await db.execute(query)
     event = result.scalars().first()
     if event is None:
@@ -85,7 +82,7 @@ async def launch_event(
     background_tasks: BackgroundTasks,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user_id: int | None = Depends(get_optional_user_id),
+    user_id: int = Depends(get_request_user_id),
 ) -> EventLaunchResponse:
     """Create an event and start the multi-agent launch workflow."""
 
@@ -126,7 +123,7 @@ async def launch_event(
 @router.get("/events/{event_id}/status", response_model=EventStatusResponse)
 async def get_event_status(
     event_id: int,
-    user_id: int | None = Depends(get_optional_user_id),
+    user_id: int = Depends(get_request_user_id),
     db: AsyncSession = Depends(get_db),
 ) -> EventStatusResponse:
     """Return event status and coarse progress inferred from completed runs."""
@@ -156,7 +153,7 @@ async def get_event_status(
 @router.get("/events/{event_id}/output", response_model=EventOutputResponse)
 async def get_event_output(
     event_id: int,
-    user_id: int | None = Depends(get_optional_user_id),
+    user_id: int = Depends(get_request_user_id),
     db: AsyncSession = Depends(get_db),
 ) -> EventOutputResponse:
     """Return the final package if available."""
@@ -178,7 +175,7 @@ async def get_event_output(
 async def update_event_output(
     event_id: int,
     payload: EventOutputUpdate,
-    user_id: int | None = Depends(get_optional_user_id),
+    user_id: int = Depends(get_request_user_id),
     db: AsyncSession = Depends(get_db),
 ) -> EventOutputResponse:
     """Persist user edits to the generated package."""
@@ -199,7 +196,7 @@ async def update_event_output(
 @router.get("/events/{event_id}", response_model=EventRead)
 async def get_event(
     event_id: int,
-    user_id: int | None = Depends(get_optional_user_id),
+    user_id: int = Depends(get_request_user_id),
     db: AsyncSession = Depends(get_db),
 ) -> Event:
     """Return an event record."""
@@ -210,7 +207,7 @@ async def get_event(
 @router.delete("/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_event(
     event_id: int,
-    user_id: int | None = Depends(get_optional_user_id),
+    user_id: int = Depends(get_request_user_id),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Delete an event owned by the current user."""
@@ -221,12 +218,10 @@ async def delete_event(
 
 
 @router.get("/projects", response_model=list[ProjectRead])
-async def list_projects(db: AsyncSession = Depends(get_db), user_id: int | None = Depends(get_optional_user_id)) -> list[Project]:
+async def list_projects(db: AsyncSession = Depends(get_db), user_id: int = Depends(get_request_user_id)) -> list[Project]:
     """Return projects and their events."""
 
-    query = select(Project).options(selectinload(Project.events)).order_by(desc(Project.created_at))
-    if user_id:
-        query = query.where(Project.user_id == user_id)
+    query = select(Project).options(selectinload(Project.events)).where(Project.user_id == user_id).order_by(desc(Project.created_at))
     result = await db.execute(query)
     projects = list(result.scalars().unique().all())
     if not projects:
@@ -241,14 +236,12 @@ async def list_projects(db: AsyncSession = Depends(get_db), user_id: int | None 
 
 @router.get("/events", response_model=list[EventRead])
 async def list_events(
-    user_id: int | None = Depends(get_optional_user_id),
+    user_id: int = Depends(get_request_user_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[Event]:
     """Return recent events."""
 
-    query = select(Event).join(Project).order_by(desc(Event.created_at)).limit(25)
-    if user_id is not None:
-        query = query.where(Project.user_id == user_id)
+    query = select(Event).join(Project).where(Project.user_id == user_id).order_by(desc(Event.created_at)).limit(25)
     result = await db.execute(query)
     return list(result.scalars().all())
 

@@ -5,7 +5,7 @@ import { EventProvider } from "../store/event";
 import { LanguageProvider } from "../lib/i18n/context";
 import Layout from "../components/Layout";
 import { clerkFrontendConfigured, clerkPublishableKey } from "../lib/auth";
-import { setAuthTokenProvider } from "../services/api";
+import { setApiClientScope, setAuthTokenProvider } from "../services/api";
 
 function AppProviders({ children, userKey }) {
   return (
@@ -44,13 +44,17 @@ function ClerkTokenBridge({ Component, pageProps }) {
   const { getToken, isLoaded, userId } = useAuth();
 
   useEffect(() => {
+    setApiClientScope(isLoaded && userId ? `clerk:${userId}` : "signed-out");
     setAuthTokenProvider(async () => {
       if (!isLoaded) return null;
       return getToken();
     });
 
-    return () => setAuthTokenProvider(null);
-  }, [getToken, isLoaded]);
+    return () => {
+      setApiClientScope("anonymous");
+      setAuthTokenProvider(null);
+    };
+  }, [getToken, isLoaded, userId]);
 
   return (
     <AppProviders userKey={isLoaded && userId ? userId : "signed-out"}>
