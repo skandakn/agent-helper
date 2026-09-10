@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class AgentContractModel(BaseModel):
@@ -194,15 +194,149 @@ class OperationsOutput(AgentContractModel):
         return value
 
 
+#: The criteria the Critic scores, with the weight each carries in the overall.
+#: Kept here rather than in the agent so the contract, the prompt template and
+#: the UI all read the same rubric.
+CRITIC_RUBRIC: dict[str, float] = {
+    "consistency": 0.25,
+    "completeness": 0.20,
+    "quality": 0.20,
+    "actionability": 0.20,
+    "brand_alignment": 0.15,
+}
+
+#: A criterion below this fails and is eligible for a regeneration pass.
+CRITIC_PASS_THRESHOLD = 7
+
+CriterionName = Literal[
+    "consistency", "completeness", "quality", "actionability", "brand_alignment"
+]
+RegenerableAgent = Literal[
+    "research", "branding", "content", "social_media", "operations", "none"
+]
+
+
+class CriterionScore(AgentContractModel):
+    """One rubric criterion, scored with its reasoning attached.
+
+    The Critic used to emit a bare `{"consistency": 7}` map. A 7 with no reason
+    is unactionable — it cannot be shown to a user, cannot be argued with, and
+    cannot tell a regeneration pass which agent to re-run.
+    """
+
+    criterion: CriterionName
+    score: int = Field(ge=1, le=10)
+    weight: float = Field(ge=0.0, le=1.0)
+    reason: str = Field(min_length=10, description="Why this score, citing the package.")
+    evidence: list[str] = Field(
+        default_factory=list,
+        description="Concrete observations behind the score, quotable in the UI.",
+    )
+    target_agents: list[RegenerableAgent] = Field(
+        default_factory=list,
+        description=(
+            "Every agent whose output must change to fix this criterion. One criterion can "
+            "fail for reasons owned by different agents — a budget that does not add up and "
+            "a headline that ignores the brand are both consistency failures."
+        ),
+    )
+    target_agent: RegenerableAgent = Field(
+        default="none",
+        description="Primary target, derived from target_agents. Kept for readability and back-compat.",
+    )
+
+    @model_validator(mode="after")
+    def reconcile_targets(self) -> "CriterionScore":
+        """Keep `target_agent` and `target_agents` consistent whichever was set."""
+
+        if self.target_agents:
+            primary = self.target_agents[0]
+            if self.target_agent != primary:
+                object.__setattr__(self, "target_agent", primary)
+        elif self.target_agent != "none":
+            object.__setattr__(self, "target_agents", [self.target_agent])
+        return self
+
+    @property
+    def passed(self) -> bool:
+        """Whether this criterion meets the passing threshold."""
+
+        return self.score >= CRITIC_PASS_THRESHOLD
+
+
+class RegenerationRecord(AgentContractModel):
+    """What the bounded regeneration pass did, and whether it helped."""
+
+    attempted: bool = False
+    passes_used: int = Field(default=0, ge=0)
+    max_passes: int = Field(default=1, ge=0)
+    target_agents: list[str] = Field(default_factory=list)
+    triggered_by: list[str] = Field(
+        default_factory=list, description="Criteria that scored below the threshold."
+    )
+    weighted_before: float = 0.0
+    weighted_after: float = 0.0
+    improved: bool = False
+    note: str = ""
+
+
 class CriticReviewOutput(AgentContractModel):
     """Critic/review agent output."""
 
-    scores: dict[str, int]
-    overall: int = Field(ge=1, le=10)
-    issues: list[str]
-    suggestions: list[str]
-    approved: bool
-    refinement_required: bool
+    criteria: list[CriterionScore] = Field(
+        default_factory=list, description="Per-criterion scores with reasons."
+    )
+    #: Flat name -> score map, derived from `criteria`. Retained because the
+    #: package markdown and the existing UI read it.
+    scores: dict[str, int] = Field(default_factory=dict)
+    overall: int = Field(default=1, ge=1, le=10)
+    weighted_overall: float = Field(default=0.0, ge=0.0, le=10.0)
+    issues: list[str] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
+    approved: bool = False
+    refinement_required: bool = False
+    regeneration: RegenerationRecord | None = None
+
+    @model_validator(mode="after")
+    def derive_aggregates(self) -> "CriticReviewOutput":
+        """Fill the aggregate fields from `criteria` when they were not supplied.
+
+        A model returning only `criteria` (the shape the prompt asks for) still
+        validates, and the derived numbers can never disagree with the
+        per-criterion scores they summarise.
+        """
+
+        if not self.criteria:
+            return self
+
+        derived_scores = {item.criterion: item.score for item in self.criteria}
+        total_weight = sum(item.weight for item in self.criteria) or 1.0
+        weighted = sum(item.score * item.weight for item in self.criteria) / total_weight
+
+        # Bypass validate_assignment: these are derived, not user input.
+        object.__setattr__(self, "scores", derived_scores)
+        object.__setattr__(self, "weighted_overall", round(weighted, 2))
+        object.__setattr__(self, "overall", max(1, min(10, round(weighted))))
+
+        failing = [item for item in self.criteria if not item.passed]
+        object.__setattr__(self, "approved", not failing)
+        object.__setattr__(self, "refinement_required", bool(failing))
+        return self
+
+    def failing_criteria(self) -> list[CriterionScore]:
+        """Criteria below the passing threshold, worst first."""
+
+        return sorted((item for item in self.criteria if not item.passed), key=lambda item: item.score)
+
+    def regeneration_targets(self) -> list[str]:
+        """Distinct agents named by failing criteria, worst-scoring first."""
+
+        targets: list[str] = []
+        for item in self.failing_criteria():
+            for agent in item.target_agents or ([item.target_agent] if item.target_agent != "none" else []):
+                if agent != "none" and agent not in targets:
+                    targets.append(agent)
+        return targets
 
 
 class LaunchPackage(AgentContractModel):

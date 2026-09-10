@@ -194,9 +194,78 @@ function BudgetChart({ budget, t, lang }) {
   );
 }
 
+function CriterionRow({ item, color, t, lang }) {
+  const passed = item.score >= 7;
+  return (
+    <div
+      className="panel panel-pad"
+      style={{ padding: "12px 14px", borderColor: passed ? "var(--border)" : "rgba(242,201,76,0.45)" }}
+    >
+      <div className="row-between" style={{ gap: 12, alignItems: "flex-start" }}>
+        <div style={{ minWidth: 0 }}>
+          <div className="row" style={{ gap: 8 }}>
+            <span style={{ fontWeight: 600, fontSize: 15 }}>
+              {localizeText(String(item.criterion).replace(/_/g, " "), lang)}
+            </span>
+            <span className="mono" style={{ fontSize: 12, color: "var(--text-dim)" }}>
+              {t("campaignBuilder.weight")} {Math.round((item.weight || 0) * 100)}%
+            </span>
+            {!passed && item.target_agents?.length > 0 && (
+              <span className="badge warn">{item.target_agents.join(", ")}</span>
+            )}
+          </div>
+          <div style={{ fontSize: 14, color: "var(--text-muted)", marginTop: 4 }}>{item.reason}</div>
+          {item.evidence?.length > 0 && (
+            <ul style={{ margin: "8px 0 0", paddingLeft: 18, fontSize: 13, color: "var(--text-dim)" }}>
+              {item.evidence.map((line, i) => (
+                <li key={i}>{line}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <span
+          className="mono"
+          style={{ fontSize: 18, fontWeight: 700, flexShrink: 0, color: passed ? "var(--ok)" : "var(--warn)" }}
+        >
+          {item.score}/10
+        </span>
+      </div>
+      <div style={{ marginTop: 10, height: 5, background: "var(--border)", borderRadius: 99, overflow: "hidden" }}>
+        <div style={{ width: `${item.score * 10}%`, height: "100%", background: color }} />
+      </div>
+    </div>
+  );
+}
+
+function RegenerationSummary({ record, t }) {
+  if (!record) return null;
+  const key = !record.attempted
+    ? "campaignBuilder.regenSkipped"
+    : record.improved
+      ? "campaignBuilder.regenImproved"
+      : "campaignBuilder.regenReverted";
+  return (
+    <div className="panel panel-pad" style={{ padding: "12px 14px" }}>
+      <div className="eyebrow" style={{ marginBottom: 6 }}>{t("campaignBuilder.regeneration")}</div>
+      <div style={{ fontSize: 14, color: "var(--text-muted)" }}>
+        {t(key, {
+          targets: (record.target_agents || []).join(", ") || "—",
+          before: Number(record.weighted_before || 0).toFixed(1),
+          after: Number(record.weighted_after || 0).toFixed(1),
+          used: record.passes_used ?? 0,
+          max: record.max_passes ?? 0,
+        })}
+      </div>
+      {record.note && (
+        <div style={{ fontSize: 13, color: "var(--text-dim)", marginTop: 4 }}>{record.note}</div>
+      )}
+    </div>
+  );
+}
+
 function CritiqueView({ data, t, lang }) {
   if (!data) return <span style={{ color: "var(--text-dim)", fontSize: 16 }}>{t("campaignBuilder.noCritique")}</span>;
-  const { scores, overall, issues, suggestions, approved, ...rest } = data;
+  const { scores, overall, issues, suggestions, approved, criteria, regeneration, weighted_overall, ...rest } = data;
 
   const scoreBarData =
     scores && typeof scores === "object"
@@ -210,6 +279,25 @@ function CritiqueView({ data, t, lang }) {
 
   return (
     <div className="stack" style={{ gap: 20 }}>
+      {/* Per-criterion scores with the reason attached. A bare number tells you
+          nothing about what to change; these say which agent owns the gap. */}
+      {Array.isArray(criteria) && criteria.length > 0 && (
+        <div className="stack" style={{ gap: 10 }}>
+          <div className="label">{t("campaignBuilder.criteria")}</div>
+          {criteria.map((item, index) => (
+            <CriterionRow
+              key={item.criterion}
+              item={item}
+              color={CHART_COLORS[index % CHART_COLORS.length]}
+              t={t}
+              lang={lang}
+            />
+          ))}
+        </div>
+      )}
+
+      {regeneration && <RegenerationSummary record={regeneration} t={t} />}
+
       {scoreBarData.length > 0 && (
         <div>
           <div className="label">{t("campaignBuilder.scoreChart")}</div>

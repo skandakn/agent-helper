@@ -7,9 +7,20 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from app.core.config import settings
-from app.models.agent import AgentProgressEvent, LaunchPackage
+from app.models.agent import (
+    AgentProgressEvent,
+    BrandingOutput,
+    ContentOutput,
+    CriterionScore,
+    LaunchPackage,
+    OperationsOutput,
+    RegenerationRecord,
+    ResearchOutput,
+    SocialMediaOutput,
+)
 from app.models.event import EventLaunchRequest
 from app.services.agents import (
+    REPAIRS,
     compile_final_markdown,
     now_utc,
     run_branding_agent,
@@ -18,11 +29,23 @@ from app.services.agents import (
     run_operations_agent,
     run_research_agent,
     run_social_media_agent,
+    repair_content,
+    repair_operations,
+    repair_social_media,
     runtime_note,
 )
 from app.services.memory import remember
 
 logger = logging.getLogger(__name__)
+
+#: The regeneration loop is deliberately bounded: one pass, at most two
+#: targeted agents. An unbounded critic/regenerate loop can spend real money
+#: oscillating between two outputs neither of which the rubric accepts, and a
+#: workflow whose cost depends on how strict the critic feels is not
+#: deployable. If one pass does not clear the rubric, the package ships with
+#: its scores visible and the reasons attached.
+MAX_REGENERATION_PASSES = 1
+MAX_REGENERATION_TARGETS = 2
 
 ProgressCallback = Callable[[AgentProgressEvent], Awaitable[None]]
 PersistCallback = Callable[[str, dict[str, Any], dict[str, Any], str, str | None], Awaitable[None]]
@@ -132,16 +155,99 @@ async def run_pipeline(
             critique.model_dump(mode="json"),
         )
 
-        if critique.refinement_required:
-            await emit("refinement", 95, "running", "Applying critic fixes to the package.")
-            previous_issues = list(critique.issues)
-            content.landing_page.hero_headline = branding.selected_name
-            critique = await run_critic_agent(research, branding, content, social_media, operations)
-            await persist(
-                "critic_refinement",
-                {"previous_issues": previous_issues},
-                critique.model_dump(mode="json"),
-            )
+        if critique.refinement_required and MAX_REGENERATION_PASSES > 0:
+            targets = critique.regeneration_targets()[:MAX_REGENERATION_TARGETS]
+            weighted_before = critique.weighted_overall
+            failing = critique.failing_criteria()
+
+            if not targets:
+                # Criteria failed but none named a fixable agent. Regenerating
+                # blindly would be guessing, so record why nothing was retried.
+                critique.regeneration = RegenerationRecord(
+                    attempted=False,
+                    max_passes=MAX_REGENERATION_PASSES,
+                    triggered_by=[item.criterion for item in failing],
+                    weighted_before=weighted_before,
+                    weighted_after=weighted_before,
+                    note="Failing criteria did not identify a regenerable agent.",
+                )
+            else:
+                await emit(
+                    "refinement",
+                    95,
+                    "running",
+                    f"Critic scored {weighted_before:.1f}/10. Regenerating: {', '.join(targets)}.",
+                )
+                # Snapshot, so a pass that makes the package worse can be undone.
+                snapshot = {
+                    "content": content,
+                    "social_media": social_media,
+                    "operations": operations,
+                }
+                feedback_by_agent = _feedback_by_agent(failing)
+
+                for target in targets:
+                    content, social_media, operations = await _regenerate(
+                        target,
+                        event_brief,
+                        research,
+                        branding,
+                        content,
+                        social_media,
+                        operations,
+                        feedback_by_agent.get(target, []),
+                    )
+
+                recheck = await run_critic_agent(research, branding, content, social_media, operations)
+                improved = recheck.weighted_overall >= weighted_before
+
+                if not improved:
+                    # Keep the better package rather than shipping a worse one
+                    # just because a pass ran.
+                    content = snapshot["content"]
+                    social_media = snapshot["social_media"]
+                    operations = snapshot["operations"]
+                    logger.info(
+                        "Regeneration lowered the score (%.2f -> %.2f); keeping the original package.",
+                        weighted_before,
+                        recheck.weighted_overall,
+                    )
+
+                record = RegenerationRecord(
+                    attempted=True,
+                    passes_used=1,
+                    max_passes=MAX_REGENERATION_PASSES,
+                    target_agents=targets,
+                    triggered_by=[item.criterion for item in failing],
+                    weighted_before=weighted_before,
+                    weighted_after=recheck.weighted_overall,
+                    improved=improved,
+                    note=(
+                        f"Regenerated {', '.join(targets)} from critic feedback."
+                        if improved
+                        else "Regenerated output scored no better; reverted to the original package."
+                    ),
+                )
+                if improved:
+                    critique = recheck
+                critique.regeneration = record
+
+                await persist(
+                    "critic_refinement",
+                    {
+                        "targets": targets,
+                        "triggered_by": record.triggered_by,
+                        "feedback": feedback_by_agent,
+                    },
+                    critique.model_dump(mode="json"),
+                )
+                await emit(
+                    "refinement",
+                    96,
+                    "completed",
+                    record.note,
+                    {"regeneration": record.model_dump(mode="json")},
+                )
 
         final_markdown = compile_final_markdown(
             event_brief,
@@ -190,3 +296,55 @@ async def run_pipeline(
         await persist("orchestrator", event_brief.model_dump(mode="json"), {}, "failed", str(exc))
         await emit("failed", 100, "failed", f"Workflow failed: {exc}")
         raise
+
+
+def _feedback_by_agent(failing: list[CriterionScore]) -> dict[str, list[str]]:
+    """Group failing criteria into per-agent feedback lines."""
+
+    grouped: dict[str, list[str]] = {}
+    for item in failing:
+        for agent in item.target_agents:
+            lines = grouped.setdefault(agent, [])
+            lines.append(f"{item.criterion} scored {item.score}/10: {item.reason}")
+            lines.extend(item.evidence)
+    return grouped
+
+
+async def _regenerate(
+    target: str,
+    event_brief: EventLaunchRequest,
+    research: ResearchOutput,
+    branding: BrandingOutput,
+    content: ContentOutput,
+    social_media: SocialMediaOutput,
+    operations: OperationsOutput,
+    feedback: list[str],
+) -> tuple[ContentOutput, SocialMediaOutput, OperationsOutput]:
+    """Re-run one agent with the critic's feedback attached.
+
+    Under the Gemini runtime the feedback goes into the prompt and the agent
+    genuinely regenerates. Under the deterministic runtime re-running produces
+    identical output, so the named repairs are applied instead — which is why
+    only the agents in `REPAIRS` are worth targeting there.
+    """
+
+    if target == "content":
+        regenerated = await run_content_agent(event_brief, research, branding, feedback=feedback)
+        if regenerated == content and "content" in REPAIRS:
+            regenerated = repair_content(content, branding)
+        return regenerated, social_media, operations
+
+    if target == "social_media":
+        regenerated = await run_social_media_agent(event_brief, branding, content, feedback=feedback)
+        if regenerated == social_media and "social_media" in REPAIRS:
+            regenerated = repair_social_media(social_media, branding)
+        return content, regenerated, operations
+
+    if target == "operations":
+        regenerated = await run_operations_agent(event_brief, research, branding, feedback=feedback)
+        if regenerated == operations and "operations" in REPAIRS:
+            regenerated = repair_operations(operations)
+        return content, social_media, regenerated
+
+    logger.info("No regeneration path for target '%s'; leaving it unchanged.", target)
+    return content, social_media, operations

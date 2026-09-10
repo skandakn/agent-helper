@@ -9,11 +9,13 @@ from datetime import datetime, timezone
 
 from app.core.config import settings
 from app.models.agent import (
+    CRITIC_RUBRIC,
     BrandNameOption,
     BrandingOutput,
     BudgetLineItem,
     CompetitorEvent,
     ContentOutput,
+    CriterionScore,
     CriticReviewOutput,
     EmailDraft,
     LandingPageCopy,
@@ -83,6 +85,21 @@ AGENT_MEMORY_SCOPES: dict[str, tuple[list[str], list[str]]] = {
 def _spec(name: str) -> AgentSpec:
     reads, writes = AGENT_MEMORY_SCOPES.get(name, ([], []))
     return spec_for(name, reads, writes)
+
+
+def _feedback_block(feedback: list[str]) -> str:
+    """Append critic feedback to a rendered prompt.
+
+    Kept out of the templates so a regeneration pass needs no template change
+    and strict rendering never has to tolerate an optional placeholder.
+    """
+
+    lines = "\n".join(f"- {item}" for item in feedback)
+    return (
+        "A reviewer rejected your previous output for this brief. "
+        "Produce a new version that fixes every point below; change nothing else.\n"
+        f"{lines}"
+    )
 
 
 def _render_user_prompt(name: str, variables: dict[str, object]) -> str:
@@ -362,8 +379,9 @@ async def run_content_agent(
     brief: EventLaunchRequest,
     research: ResearchOutput,
     branding: BrandingOutput,
+    feedback: list[str] | None = None,
 ) -> ContentOutput:
-    """Run the Content agent."""
+    """Run the Content agent, optionally regenerating against critic feedback."""
 
     prompt = _render_user_prompt(
         "content",
@@ -375,6 +393,8 @@ async def run_content_agent(
             "goals": brief.goals,
         },
     )
+    if feedback:
+        prompt = f"{prompt}\n\n{_feedback_block(feedback)}"
     generated = await maybe_generate_json_with_gemini(_spec("content"), prompt, ContentOutput)
     if generated is not None:
         return generated
@@ -592,8 +612,9 @@ async def run_social_media_agent(
     brief: EventLaunchRequest,
     branding: BrandingOutput,
     content: ContentOutput,
+    feedback: list[str] | None = None,
 ) -> SocialMediaOutput:
-    """Run the Social Media agent."""
+    """Run the Social Media agent, optionally regenerating against feedback."""
 
     prompt = _render_user_prompt(
         "social_media",
@@ -604,6 +625,8 @@ async def run_social_media_agent(
             "audience": brief.audience,
         },
     )
+    if feedback:
+        prompt = f"{prompt}\n\n{_feedback_block(feedback)}"
     generated = await maybe_generate_json_with_gemini(_spec("social_media"), prompt, SocialMediaOutput)
     if generated is not None:
         return generated
@@ -709,8 +732,9 @@ async def run_operations_agent(
     brief: EventLaunchRequest,
     research: ResearchOutput,
     branding: BrandingOutput,
+    feedback: list[str] | None = None,
 ) -> OperationsOutput:
-    """Run the Operations agent."""
+    """Run the Operations agent, optionally regenerating against feedback."""
 
     prompt = _render_user_prompt(
         "operations",
@@ -721,6 +745,8 @@ async def run_operations_agent(
             "duration_days": brief.constraints.duration_days,
         },
     )
+    if feedback:
+        prompt = f"{prompt}\n\n{_feedback_block(feedback)}"
     generated = await maybe_generate_json_with_gemini(_spec("operations"), prompt, OperationsOutput)
     if generated is not None:
         return generated
@@ -875,39 +901,309 @@ async def run_critic_agent(
     if generated is not None:
         return generated
 
-    issues: list[str] = []
-    suggestions: list[str] = []
-    if branding.selected_name not in content.landing_page.hero_headline:
-        issues.append("Landing page headline does not use the selected event name.")
-        suggestions.append("Update landing copy to reinforce the selected brand.")
-    if len(content.outreach_emails) < 3:
-        issues.append("Outreach coverage is thin.")
-        suggestions.append("Add participant, sponsor, judge, and partner emails.")
-    if operations.budget_total <= 0:
-        issues.append("Budget total is missing.")
-        suggestions.append("Add budget line items with assumptions.")
-    if len(social_media.posts) < 6:
-        issues.append("Social campaign needs more channel coverage.")
-        suggestions.append("Add at least two weeks of LinkedIn, X, and Instagram posts.")
+    return score_package(research, branding, content, social_media, operations)
 
-    base_score = 9 if not issues else 7
-    return CriticReviewOutput(
-        scores={
-            "consistency": 9 if not issues else 7,
-            "completeness": 9,
-            "quality": 8,
-            "actionability": 9 if operations.tasks else 6,
-        },
-        overall=base_score,
-        issues=issues,
-        suggestions=suggestions
-        or [
-            "Before publication, verify sponsor names, dates, venue details, and any regional factual claims.",
-            "Run one human editorial pass on outreach emails for brand voice and legal/compliance wording.",
-        ],
-        approved=not issues,
-        refinement_required=bool(issues),
+
+def _criterion(
+    name: str,
+    score: int,
+    reason: str,
+    evidence: list[str],
+    targets: list[str] | None = None,
+) -> CriterionScore:
+    """Build one scored criterion with its rubric weight attached."""
+
+    return CriterionScore(
+        criterion=name,  # type: ignore[arg-type]
+        score=max(1, min(10, score)),
+        weight=CRITIC_RUBRIC[name],
+        reason=reason,
+        evidence=evidence,
+        target_agents=[agent for agent in (targets or []) if agent != "none"],  # type: ignore[arg-type]
     )
+
+
+def _score_consistency(
+    branding: BrandingOutput,
+    content: ContentOutput,
+    social_media: SocialMediaOutput,
+    operations: OperationsOutput,
+) -> CriterionScore:
+    """Do the agents' outputs agree with each other?"""
+
+    name = branding.selected_name
+    findings: list[str] = []
+    targets: list[str] = []
+    score = 10
+
+    if name.lower() not in content.landing_page.hero_headline.lower():
+        findings.append(
+            f"Hero headline '{content.landing_page.hero_headline}' does not use the selected name '{name}'."
+        )
+        score -= 4
+        targets.append("content")
+
+    line_total = sum(item.amount for item in operations.budget_breakdown)
+    if abs(line_total - operations.budget_total) > max(1.0, line_total * 0.01):
+        findings.append(
+            f"Budget total {operations.budget_total:,.0f} does not match the sum of its lines {line_total:,.0f}."
+        )
+        # An arithmetic contradiction is not a matter of degree. Penalise it
+        # hard enough that it cannot sit at exactly the passing threshold.
+        score -= 5
+        targets.append("operations")
+
+    off_brand_posts = [post for post in social_media.posts if name.lower() not in post.text.lower()]
+    if len(off_brand_posts) == len(social_media.posts) and social_media.posts:
+        findings.append("No social post mentions the event by name.")
+        score -= 2
+        targets.append("social_media")
+
+    reason = (
+        "Brand name, budget arithmetic and campaign references line up across agents."
+        if not findings
+        else "Cross-agent contradictions found: " + " ".join(findings)
+    )
+    return _criterion("consistency", score, reason, findings, targets)
+
+
+def _score_completeness(
+    research: ResearchOutput,
+    content: ContentOutput,
+    social_media: SocialMediaOutput,
+    operations: OperationsOutput,
+) -> CriterionScore:
+    """Is every part of the package actually present, at usable depth?"""
+
+    #: (label, actual, expected, agent to re-run if short)
+    requirements = [
+        ("outreach emails", len(content.outreach_emails), 4, "content"),
+        ("sponsor pitch slides", len(content.sponsor_pitch_outline), 6, "content"),
+        ("social posts", len(social_media.posts), 8, "social_media"),
+        ("operations tasks", len(operations.tasks), 6, "operations"),
+        ("timeline milestones", len(operations.timeline), 5, "operations"),
+        ("sponsor targets", len(research.sponsor_targets), 3, "research"),
+    ]
+    short = [(label, actual, expected, agent) for label, actual, expected, agent in requirements if actual < expected]
+
+    findings = [f"{label}: {actual} of {expected} expected." for label, actual, expected, _ in short]
+    target = short[0][3] if short else "none"
+    score = 10 - min(6, 2 * len(short))
+    reason = (
+        "Every section meets its expected depth."
+        if not short
+        else "Sections below the expected depth: " + " ".join(findings)
+    )
+    return _criterion("completeness", score, reason, findings, [target] if target != "none" else [])
+
+
+def _score_quality(research: ResearchOutput, content: ContentOutput) -> CriterionScore:
+    """Is the writing specific enough to be used as-is?"""
+
+    findings: list[str] = []
+    score = 9
+
+    thin_emails = [email.audience for email in content.outreach_emails if len(email.body) < 120]
+    if thin_emails:
+        findings.append(f"Outreach bodies too short to send: {', '.join(thin_emails)}.")
+        score -= 2
+
+    if research.confidence < 0.5:
+        findings.append(f"Research confidence is {research.confidence:.2f}; much of it is inferred.")
+        score -= 1
+
+    if len(content.risk_narrative) < 200:
+        findings.append("Risk narrative is a summary rather than an analysis.")
+        score -= 1
+
+    reason = (
+        "Copy is specific and long enough to use without a rewrite."
+        if not findings
+        else " ".join(findings)
+    )
+    return _criterion("quality", score, reason, findings, ["content"] if thin_emails else [])
+
+
+def _score_actionability(operations: OperationsOutput) -> CriterionScore:
+    """Could someone execute this plan without asking follow-up questions?"""
+
+    findings: list[str] = []
+    score = 10
+
+    unowned = [task.description for task in operations.tasks if not task.owner.strip()]
+    if unowned:
+        findings.append(f"{len(unowned)} task(s) have no owner.")
+        score -= 3
+
+    undated = [task.description for task in operations.tasks if not task.due_window.strip()]
+    if undated:
+        findings.append(f"{len(undated)} task(s) have no due window.")
+        score -= 2
+
+    vague_exits = [item.phase for item in operations.timeline if len(item.exit_criteria) < 20]
+    if vague_exits:
+        findings.append(f"Milestones without a checkable exit criterion: {', '.join(vague_exits)}.")
+        score -= 2
+
+    if operations.budget_total <= 0:
+        findings.append("Budget total is zero, so nothing can be committed against it.")
+        score -= 4
+
+    reason = (
+        "Every task has an owner and a window, and every milestone a checkable exit criterion."
+        if not findings
+        else " ".join(findings)
+    )
+    return _criterion("actionability", score, reason, findings, ["operations"] if findings else [])
+
+
+def _score_brand_alignment(branding: BrandingOutput, content: ContentOutput) -> CriterionScore:
+    """Does the copy carry the brand the Branding agent chose?"""
+
+    findings: list[str] = []
+    score = 9
+    haystack = " ".join(
+        [content.landing_page.hero_headline, content.landing_page.subheadline]
+        + [email.body for email in content.outreach_emails]
+    ).lower()
+
+    if branding.tagline.lower() not in haystack:
+        findings.append("The tagline appears nowhere in the landing copy or outreach.")
+        score -= 2
+
+    missing_tone = [word for word in branding.tone if word.lower() not in haystack]
+    if len(missing_tone) == len(branding.tone) and branding.tone:
+        findings.append(f"None of the chosen tone words ({', '.join(branding.tone)}) surface in the copy.")
+        score -= 2
+
+    reason = (
+        "Tagline and tone carry through the copy."
+        if not findings
+        else " ".join(findings)
+    )
+    return _criterion("brand_alignment", score, reason, findings, ["content"] if findings else [])
+
+
+def score_package(
+    research: ResearchOutput,
+    branding: BrandingOutput,
+    content: ContentOutput,
+    social_media: SocialMediaOutput,
+    operations: OperationsOutput,
+) -> CriticReviewOutput:
+    """Score a package against the rubric, one criterion at a time.
+
+    Each check is a concrete assertion about the package, so the score carries
+    a reason that can be shown to a user and a `target_agent` that tells the
+    regeneration pass what to re-run. The previous implementation returned a
+    flat map of numbers with a hardcoded 9-or-7.
+    """
+
+    criteria = [
+        _score_consistency(branding, content, social_media, operations),
+        _score_completeness(research, content, social_media, operations),
+        _score_quality(research, content),
+        _score_actionability(operations),
+        _score_brand_alignment(branding, content),
+    ]
+
+    issues: list[str] = []
+    for item in criteria:
+        if not item.passed:
+            issues.extend(item.evidence or [item.reason])
+
+    suggestions = [
+        f"Re-run the {', '.join(item.target_agents)} agent(s): {item.reason}"
+        for item in criteria
+        if not item.passed and item.target_agents
+    ] or [
+        "Before publication, verify sponsor names, dates, venue details, and any regional factual claims.",
+        "Run one human editorial pass on outreach emails for brand voice and legal/compliance wording.",
+    ]
+
+    return CriticReviewOutput(criteria=criteria, issues=issues, suggestions=suggestions)
+
+
+# ── deterministic repair ────────────────────────────────────────────────────
+# Re-running a deterministic agent produces byte-identical output, so a
+# regeneration pass would be theatre. These functions apply the specific,
+# named repairs the deterministic Critic is capable of asking for. Anything the
+# Critic cannot name concretely is left alone rather than "improved" blindly.
+
+
+def repair_content(content: ContentOutput, branding: BrandingOutput) -> ContentOutput:
+    """Fix the brand-carrying failures the Critic checks for."""
+
+    patched = content.model_copy(deep=True)
+    name = branding.selected_name
+
+    if name.lower() not in patched.landing_page.hero_headline.lower():
+        patched.landing_page.hero_headline = f"{name}: {patched.landing_page.hero_headline}".strip(": ")
+
+    haystack = f"{patched.landing_page.hero_headline} {patched.landing_page.subheadline}".lower()
+    if branding.tagline and branding.tagline.lower() not in haystack:
+        patched.landing_page.subheadline = f"{branding.tagline} {patched.landing_page.subheadline}".strip()
+
+    tone_words = [word for word in branding.tone if word.lower() not in haystack]
+    if tone_words:
+        descriptor = ", ".join(tone_words[:3])
+        patched.landing_page.subheadline = (
+            f"{patched.landing_page.subheadline} Built to be {descriptor}."
+        )
+
+    return patched
+
+
+def repair_operations(operations: OperationsOutput) -> OperationsOutput:
+    """Restore budget arithmetic and fill in unassigned execution details."""
+
+    patched = operations.model_copy(deep=True)
+
+    line_total = sum(item.amount for item in patched.budget_breakdown)
+    if line_total > 0 and abs(line_total - patched.budget_total) > max(1.0, line_total * 0.01):
+        patched.budget_total = round(line_total, 2)
+
+    patched.tasks = [
+        task.model_copy(
+            update={
+                "owner": task.owner.strip() or "Program manager",
+                "due_window": task.due_window.strip() or "Before event day",
+            }
+        )
+        for task in patched.tasks
+    ]
+
+    patched.timeline = [
+        item.model_copy(
+            update={
+                "exit_criteria": (
+                    item.exit_criteria
+                    if len(item.exit_criteria) >= 20
+                    else f"{item.deliverable} signed off by {item.owner}."
+                )
+            }
+        )
+        for item in patched.timeline
+    ]
+
+    return patched
+
+
+def repair_social_media(social_media: SocialMediaOutput, branding: BrandingOutput) -> SocialMediaOutput:
+    """Make sure the campaign names the event it is promoting."""
+
+    patched = social_media.model_copy(deep=True)
+    name = branding.selected_name
+    if any(name.lower() in post.text.lower() for post in patched.posts):
+        return patched
+    patched.posts = [
+        post.model_copy(update={"text": f"{name}: {post.text}"}) if index < 2 else post
+        for index, post in enumerate(patched.posts)
+    ]
+    return patched
+
+
+REPAIRS = {"content", "operations", "social_media"}
 
 
 def compile_final_markdown(
@@ -972,8 +1268,30 @@ def compile_final_markdown(
         "Operational mitigations:\n"
         f"{operational_risks}\n\n"
         "## Critic Review\n"
-        f"Approved: {critique.approved}. Overall score: {critique.overall}/10.\n"
+        f"Approved: {critique.approved}. Weighted score: {critique.weighted_overall:.1f}/10.\n\n"
+        f"{_critic_markdown(critique)}"
     )
+
+
+def _critic_markdown(critique: CriticReviewOutput) -> str:
+    """Render per-criterion scores and any regeneration pass into the artifact."""
+
+    if not critique.criteria:
+        return ""
+    rows = "\n".join(
+        f"- **{item.criterion.replace('_', ' ').title()}** {item.score}/10 "
+        f"(weight {item.weight:.0%}): {item.reason}"
+        for item in critique.criteria
+    )
+    regeneration = ""
+    if critique.regeneration and critique.regeneration.attempted:
+        record = critique.regeneration
+        regeneration = (
+            "\n\nRegeneration pass: re-ran "
+            f"{', '.join(record.target_agents)} "
+            f"({record.weighted_before:.1f} -> {record.weighted_after:.1f}). {record.note}"
+        )
+    return f"{rows}{regeneration}\n"
 
 
 def runtime_note() -> str:

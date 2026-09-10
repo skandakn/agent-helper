@@ -172,6 +172,15 @@ const en = {
   campaignBuilder: {
     noMission: "No mission to review yet — launch one and let the agents finish first.",
     launchPackage: "Launch package",
+    criteria: "PER-CRITERION REVIEW",
+    weight: "weight",
+    regeneration: "REGENERATION PASS",
+    regenImproved:
+      "Re-ran {targets} from the critic's feedback. Weighted score {before} → {after} ({used} of {max} passes used).",
+    regenReverted:
+      "Re-ran {targets}, but the result scored {after} against {before}. The original package was kept.",
+    regenSkipped:
+      "The failing criteria did not name an agent that could be re-run, so no regeneration pass was attempted.",
     exportPackage: "Export package",
     download: "Download",
     copy: "Copy",
