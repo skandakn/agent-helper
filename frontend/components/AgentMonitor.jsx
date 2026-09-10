@@ -130,7 +130,7 @@ export default function AgentMonitor() {
 
     async function refreshStatus() {
       try {
-        const status = await api.getEventStatus(event_id);
+        const status = await api.getEventStatus(event_id, { silent: true });
         const nextProgress = normalizeProgress(status?.progress, status?.status);
         if (Object.keys(nextProgress).length) {
           setProgress((p) => ({ ...p, ...nextProgress }));
