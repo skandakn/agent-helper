@@ -246,8 +246,5 @@ async def list_events(
     return list(result.scalars().all())
 
 
-@router.get("/health")
-async def health() -> dict[str, str]:
-    """Health check endpoint."""
-
-    return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
+# /health moved to app/api/health.py, where it reports each dependency
+# separately instead of a flat {"status": "ok"}.

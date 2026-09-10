@@ -1,45 +1,28 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { RefreshCw, Bell, Trash2, ShieldCheck } from "lucide-react";
 import { api } from "../services/api";
-import { probeLabelKey } from "../services/health";
 import { useEventStore } from "../store/event";
 import { getPrefs, setPrefs } from "../lib/prefs";
+import { badgeClass, stateLabelKey } from "../lib/connection";
+import { useConnection } from "../lib/useConnection";
 import { useTranslation } from "../lib/i18n/context";
 
 export default function Settings() {
   const { t } = useTranslation();
   const { recent, clearRecent } = useEventStore();
-  const [checking, setChecking] = useState(true);
-  const [probe, setProbe] = useState(null);
+  const { state, probe, check, checking, dependencies, explanation } = useConnection({
+    intervalMs: 20000,
+    deep: true,
+  });
   const [prefs, setPrefsState] = useState(getPrefs());
   const [confirmClear, setConfirmClear] = useState(false);
   const [notifPermission, setNotifPermission] = useState("default");
-  const abortRef = useRef(null);
-  const mountedRef = useRef(true);
-
-  const check = useCallback(async () => {
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    setChecking(true);
-    const next = await api.getHealth({ signal: controller.signal, timeoutMs: 8000 });
-    if (!mountedRef.current || controller.signal.aborted) return;
-    setProbe(next);
-    setChecking(false);
-  }, []);
 
   useEffect(() => {
-    mountedRef.current = true;
-    check();
     if (typeof window !== "undefined" && "Notification" in window) {
       setNotifPermission(Notification.permission);
     }
-    return () => {
-      mountedRef.current = false;
-      abortRef.current?.abort();
-    };
-  }, [check]);
+  }, []);
 
   async function toggleNotify(value) {
     if (value && typeof window !== "undefined" && "Notification" in window) {
@@ -72,7 +55,11 @@ export default function Settings() {
           <div className="kv">
             <dt>{t("settings.status")}</dt>
             <dd>
-              <ConnectionBadge checking={checking} probe={probe} t={t} />
+              <span className={`badge ${badgeClass(state)}`}>
+                <span className={`status-dot ${badgeClass(state) === "warn" ? "" : badgeClass(state)}`} />
+                {t(stateLabelKey(state))}
+                {probe?.httpStatus && !probe.ok ? ` (${probe.httpStatus})` : ""}
+              </span>
             </dd>
           </div>
           <div className="kv">
@@ -86,11 +73,33 @@ export default function Settings() {
               )}
             </dd>
           </div>
+          {probe?.payload?.version && (
+            <div className="kv">
+              <dt>{t("settings.backendVersion")}</dt>
+              <dd className="mono">
+                {probe.payload.version} · {probe.payload.environment} · {t("settings.authMode")}{" "}
+                {probe.payload.auth_mode}
+              </dd>
+            </div>
+          )}
         </dl>
 
-        {!checking && probe && !probe.ok && probe.reason && (
+        {!checking && explanation && (
           <div className="error-banner" style={{ marginTop: 14 }}>
-            <span style={{ fontSize: 15 }}>{probe.reason}</span>
+            <span style={{ fontSize: 15 }}>{explanation}</span>
+          </div>
+        )}
+
+        {dependencies.length > 0 && (
+          <div style={{ marginTop: 18 }}>
+            <div className="eyebrow" style={{ marginBottom: 10 }}>
+              {t("settings.dependencies")}
+            </div>
+            <div className="stack" style={{ gap: 8 }}>
+              {dependencies.map((dep) => (
+                <DependencyRow key={dep.name} dep={dep} t={t} />
+              ))}
+            </div>
           </div>
         )}
         <p style={{ fontSize: 14, color: "var(--text-dim)", marginTop: 14 }}>
@@ -149,27 +158,44 @@ export default function Settings() {
   );
 }
 
-/**
- * The connection badge has three visual states and no resting "unknown":
- * while a probe is in flight it says so, and once one has completed it always
- * shows a definite reachable / not-reachable answer.
- */
-function ConnectionBadge({ checking, probe, t }) {
-  if (checking) {
-    return (
-      <span className="badge warn">
-        <span className="status-dot" />
-        {t("connection.checking")}
-      </span>
-    );
-  }
-  const cls = probe?.ok ? "ok" : "error";
+const DEP_CLASS = { ok: "ok", degraded: "warn", down: "error", skipped: "" };
+
+/** One dependency from the deep /health report. */
+function DependencyRow({ dep, t }) {
+  const cls = DEP_CLASS[dep.status] ?? "";
   return (
-    <span className={`badge ${cls}`}>
-      <span className={`status-dot ${cls}`} />
-      {t(probeLabelKey(probe))}
-      {probe?.httpStatus ? ` (${probe.httpStatus})` : ""}
-    </span>
+    <div
+      className="row-between"
+      style={{
+        alignItems: "flex-start",
+        gap: 12,
+        padding: "10px 12px",
+        border: "1px solid var(--border)",
+        borderRadius: 10,
+        background: "var(--bg-elevated)",
+      }}
+    >
+      <div style={{ minWidth: 0 }}>
+        <div className="row" style={{ gap: 8 }}>
+          <span className={`status-dot ${cls}`} />
+          <span style={{ fontWeight: 600, fontSize: 15 }}>{t(`dependencies.${dep.name}`)}</span>
+          {!dep.required && (
+            <span className="mono" style={{ fontSize: 12, color: "var(--text-dim)" }}>
+              {t("settings.optional")}
+            </span>
+          )}
+        </div>
+        <div style={{ fontSize: 14, color: "var(--text-dim)", marginTop: 4 }}>
+          {dep.detail}
+          {dep.degradedMode ? ` (${t("settings.fallback")}: ${dep.degradedMode})` : ""}
+        </div>
+      </div>
+      {dep.latencyMs != null && (
+        <span className="mono" style={{ fontSize: 13, color: "var(--text-dim)", flexShrink: 0 }}>
+          {Math.round(dep.latencyMs)} ms
+        </span>
+      )}
+    </div>
   );
 }
 

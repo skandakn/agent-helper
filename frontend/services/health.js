@@ -58,7 +58,10 @@ function result(partial) {
  * @returns {Promise<{ok: boolean, outcome: string, httpStatus: number|null,
  *   latencyMs: number|null, reason: string, payload: object|null, checkedAt: string}>}
  */
-export async function probeBackend(baseUrl, { timeoutMs = DEFAULT_PROBE_TIMEOUT_MS, signal } = {}) {
+export async function probeBackend(
+  baseUrl,
+  { timeoutMs = DEFAULT_PROBE_TIMEOUT_MS, signal, deep = false } = {}
+) {
   if (browserIsOffline()) {
     return result({
       outcome: PROBE_OUTCOME.offline,
@@ -76,7 +79,7 @@ export async function probeBackend(baseUrl, { timeoutMs = DEFAULT_PROBE_TIMEOUT_
 
   const started = now();
   try {
-    const res = await fetch(`${baseUrl}/health`, {
+    const res = await fetch(`${baseUrl}/health${deep ? "?deep=true" : ""}`, {
       method: "GET",
       cache: "no-store",
       signal: controller.signal,
@@ -88,6 +91,20 @@ export async function probeBackend(baseUrl, { timeoutMs = DEFAULT_PROBE_TIMEOUT_
       payload = await res.json();
     } catch {
       /* /health may return a non-JSON body; reachability is what matters here */
+    }
+
+    // A deep probe answers 503 when a required dependency is down. The backend
+    // is still *reachable*, and the payload says exactly what is wrong, so we
+    // keep it rather than collapsing it into a generic transport failure.
+    if (res.status === 503 && payload && typeof payload.status === "string") {
+      return result({
+        ok: true,
+        outcome: PROBE_OUTCOME.ok,
+        httpStatus: res.status,
+        latencyMs,
+        payload,
+        reason: "",
+      });
     }
 
     if (res.ok) {

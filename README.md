@@ -82,7 +82,16 @@ Contracts live in `backend/app/models/agent.py`.
 - `POST /auth/register`: optional local JWT registration for API demos.
 - `POST /auth/login`: optional local JWT login for API demos.
 - `GET /auth/session`: authenticated Clerk/local session inspection.
-- `GET /health`: backend health.
+- `GET /health`: liveness. Answers from process state only, always 200 while
+  the process is serving. This is the path Render's health check uses, so a
+  degraded Qdrant can never cause a restart loop.
+- `GET /health?deep=true` (alias `GET /health/ready`): readiness. Probes every
+  dependency with a bounded timeout and returns a `HealthReport` — overall
+  `status` (`ok` / `degraded` / `starting` / `down`), uptime, auth mode,
+  effective agent runtime, and a `dependencies[]` entry per dependency with its
+  own status, latency, human-readable detail, and the fallback carrying the
+  load when one is. Returns 503 only when a *required* dependency is down or
+  startup has not completed.
 - `WS /ws/{event_id}`: live agent progress events.
 
 ## Implementation Plan

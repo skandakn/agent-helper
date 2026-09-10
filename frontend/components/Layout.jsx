@@ -16,7 +16,8 @@ import {
   LogIn,
   UserPlus,
 } from "lucide-react";
-import { api } from "../services/api";
+import { badgeClass, stateLabelKey } from "../lib/connection";
+import { useConnection } from "../lib/useConnection";
 import { useTranslation } from "../lib/i18n/context";
 import LanguageSwitcher from "./LanguageSwitcher";
 import { clerkFrontendConfigured } from "../lib/auth";
@@ -77,35 +78,8 @@ function AccountControls() {
 export default function Layout({ children }) {
   const router = useRouter();
   const { t, lang } = useTranslation();
-  const [online, setOnline] = useState(null);
+  const { state: connection } = useConnection({ intervalMs: 20000, deep: true });
   const [mobileOpen, setMobileOpen] = useState(false);
-
-  useEffect(() => {
-    let mounted = true;
-    let inFlight = false;
-    const controller = new AbortController();
-
-    async function ping() {
-      // A sleeping backend can take longer to answer than the poll interval.
-      // Without this guard every tick stacked another pending request.
-      if (inFlight) return;
-      inFlight = true;
-      try {
-        const probe = await api.getHealth({ signal: controller.signal, timeoutMs: 10000 });
-        if (mounted && !controller.signal.aborted) setOnline(probe.ok);
-      } finally {
-        inFlight = false;
-      }
-    }
-
-    ping();
-    const id = setInterval(ping, 15000);
-    return () => {
-      mounted = false;
-      controller.abort();
-      clearInterval(id);
-    };
-  }, []);
 
   useEffect(() => {
     setMobileOpen(false);
@@ -143,10 +117,8 @@ export default function Layout({ children }) {
         <div className="sidebar-foot">
           <LanguageSwitcher />
           <div className="system-status">
-            <span
-              className={`status-dot ${online === null ? "" : online ? "ok" : "error"}`}
-            />
-            {online === null ? t("layout.checking") : online ? t("layout.backendOnline") : t("layout.backendUnreachable")}
+            <span className={`status-dot ${badgeClass(connection) === "warn" ? "" : badgeClass(connection)}`} />
+            {t(stateLabelKey(connection))}
           </div>
         </div>
       </aside>
@@ -180,15 +152,12 @@ export default function Layout({ children }) {
           <div className="topbar-actions">
             <LanguageSwitcher />
             <AccountControls />
-            {/* Before the first probe answers this said "SYSTEM NOMINAL" in
-                green, which is a claim we cannot make yet. */}
-            <span className={`badge ${online === null ? "warn" : online ? "ok" : "error"}`}>
-              <span className={`status-dot ${online === null ? "" : online ? "ok" : "error"}`} />
-              {online === null
-                ? t("layout.checking")
-                : online
-                  ? t("layout.systemNominal")
-                  : t("layout.systemHold")}
+            {/* This pill used to render a green "SYSTEM NOMINAL" before the
+                first probe had returned anything. It now mirrors the same
+                connection state machine as the sidebar. */}
+            <span className={`badge ${badgeClass(connection)}`}>
+              <span className={`status-dot ${badgeClass(connection) === "warn" ? "" : badgeClass(connection)}`} />
+              {t(stateLabelKey(connection))}
             </span>
           </div>
         </header>

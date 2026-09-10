@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -117,6 +119,46 @@ async def init_collections() -> None:
     except Exception as exc:
         _qdrant_available = False
         logger.warning("Qdrant unavailable; using in-process memory fallback: %s", exc)
+
+
+def memory_backend() -> str:
+    """Return the memory backend currently in use."""
+
+    if not settings.QDRANT_ENABLED:
+        return "disabled"
+    return "qdrant" if _qdrant_available else "in_process_stub"
+
+
+async def check_memory(timeout_seconds: float = 3.0) -> tuple[str, float | None, str]:
+    """Probe long-term memory.
+
+    Returns ``(status, latency_ms, detail)`` where status is one of
+    ``ok`` / ``degraded`` / ``skipped``. Qdrant being unreachable is a
+    degradation, not an outage: the workflow keeps running on the in-process
+    fallback, and the console should be able to say exactly that instead of
+    showing an undifferentiated red dot.
+    """
+
+    if not settings.QDRANT_ENABLED:
+        return "skipped", None, "Qdrant is disabled by configuration; using in-process memory."
+    if not _qdrant_available or _qdrant_client is None:
+        return "degraded", None, f"Qdrant at {settings.QDRANT_URL} is not connected; using in-process fallback."
+
+    started = time.perf_counter()
+    try:
+        async with asyncio.timeout(timeout_seconds):
+            collections = await _qdrant_client.get_collections()
+        latency_ms = (time.perf_counter() - started) * 1000
+        known = {collection.name for collection in collections.collections}
+        missing = sorted(set(COLLECTIONS) - known)
+        if missing:
+            return "degraded", latency_ms, f"Missing collections: {', '.join(missing)}."
+        return "ok", latency_ms, f"{len(known & set(COLLECTIONS))} collections available."
+    except TimeoutError:
+        return "degraded", (time.perf_counter() - started) * 1000, f"Qdrant did not answer within {timeout_seconds}s."
+    except Exception as exc:  # pragma: no cover - depends on deployment state
+        logger.warning("Qdrant health probe failed: %s", exc)
+        return "degraded", (time.perf_counter() - started) * 1000, str(exc)[:200]
 
 
 async def remember(collection: str, text: str, payload: dict) -> str:
