@@ -6,6 +6,11 @@ Production-oriented MVP for a multi-agent hackathon launch system. It takes a ha
 
 - Frontend: Next.js pages for dashboard, event creation, live agent monitor, package editing, memory search, no-token message generation, analytics, settings, and Clerk auth.
 - Backend: FastAPI with async SQLAlchemy, PostgreSQL persistence, Alembic migrations, Clerk JWT verification, WebSocket progress updates, structured Pydantic contracts, and background workflow execution.
+- Prompts: every agent's system instruction and user prompt lives in a versioned
+  file under `backend/app/prompts/`, editable through `/prompts` and the console's
+  prompt studio, with a live preview that uses the same renderer as the pipeline.
+  Set `PROMPT_TEMPLATES_DIR` to relocate them and `PROMPT_EDITING_ENABLED=false`
+  to make them read-only in production.
 - Agents: Orchestrator coordinates Research, Branding, Content, Social Media, Operations, and Critic agents. Each agent has narrow inputs/outputs and validated JSON contracts. `AGENT_RUNTIME=gemini` uses Gemini when a Google key is configured and deterministic fallback when no key is present.
 - Memory: Qdrant collections for long-term memory, with a clearly labeled in-process fallback for local MVP runs.
 - Tooling: MCP servers expose Qdrant memory tools and safe utility tools.
@@ -82,6 +87,14 @@ Contracts live in `backend/app/models/agent.py`.
 - `POST /auth/register`: optional local JWT registration for API demos.
 - `POST /auth/login`: optional local JWT login for API demos.
 - `GET /auth/session`: authenticated Clerk/local session inspection.
+- `GET /prompts`: list agent prompt templates with metadata.
+- `GET /prompts/{name}`: one template, including system and user text.
+- `POST /prompts/{name}/preview`: render a template (or unsaved editor content)
+  against variables, reporting missing and unused placeholders.
+- `PUT /prompts/{name}`: save a new version, archiving the previous one.
+- `GET /prompts/{name}/versions`, `POST /prompts/{name}/revert/{version}`.
+- `GET /events/{id}/progress?since=`: buffered progress frames (REST twin of the
+  WebSocket replay).
 - `GET /health`: liveness. Answers from process state only, always 200 while
   the process is serving. This is the path Render's health check uses, so a
   degraded Qdrant can never cause a restart loop.

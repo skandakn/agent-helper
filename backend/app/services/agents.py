@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import math
 from datetime import datetime, timezone
@@ -29,64 +30,82 @@ from app.models.agent import (
 )
 from app.models.event import EventLaunchRequest
 from app.services.adk_runtime import AgentSpec, maybe_generate_json_with_gemini
+from app.services import prompts
 from app.services.memory import recall, remember
 
+logger = logging.getLogger(__name__)
 
-ORCHESTRATOR_SPEC = AgentSpec(
-    name="orchestrator",
-    model_name=settings.GEMINI_PRO_MODEL,
-    instruction="Parse the hackathon brief, plan agent workflow steps, aggregate outputs, and trigger review.",
-    reads_memory=["event_templates", "campaign_history"],
-    writes_memory=["event_templates"],
-)
 
-RESEARCH_SPEC = AgentSpec(
-    name="research",
-    model_name=settings.GEMINI_PRO_MODEL,
-    instruction="Research trends, audiences, competitors, sponsors, and risks for a hackathon theme.",
-    reads_memory=["event_templates", "sponsor_templates"],
-    writes_memory=["event_templates", "sponsor_templates"],
-)
+MODEL_BY_TIER = {"pro": settings.GEMINI_PRO_MODEL, "flash": settings.GEMINI_FLASH_MODEL}
 
-BRANDING_SPEC = AgentSpec(
-    name="branding",
-    model_name=settings.GEMINI_PRO_MODEL,
-    instruction="Generate distinct hackathon naming and brand systems using research context.",
-    reads_memory=["event_templates", "campaign_history"],
-    writes_memory=["marketing_assets"],
-)
 
-CONTENT_SPEC = AgentSpec(
-    name="content",
-    model_name=settings.GEMINI_FLASH_MODEL,
-    instruction="Create launch copy, outreach emails, sponsor pitch outline, FAQ, and reusable content.",
-    reads_memory=["marketing_assets"],
-    writes_memory=["marketing_assets"],
-)
+def spec_for(
+    name: str,
+    reads_memory: list[str],
+    writes_memory: list[str],
+) -> AgentSpec:
+    """Build an AgentSpec whose instruction comes from the prompt template.
 
-SOCIAL_SPEC = AgentSpec(
-    name="social_media",
-    model_name=settings.GEMINI_FLASH_MODEL,
-    instruction="Create a multi-week social campaign with channel-specific posts and cadence.",
-    reads_memory=["campaign_history", "marketing_assets"],
-    writes_memory=["campaign_history"],
-)
+    The instruction used to be a Python literal on the spec. Reading it from
+    the template means editing a prompt file (or the prompt studio) changes
+    what the agent is actually told, with no code change and no redeploy.
+    A template that fails to load falls back to a minimal instruction rather
+    than taking the pipeline down.
+    """
 
-OPERATIONS_SPEC = AgentSpec(
-    name="operations",
-    model_name=settings.GEMINI_PRO_MODEL,
-    instruction="Create timeline, staffing, logistics, budget, and risks for execution.",
-    reads_memory=["event_templates", "campaign_history"],
-    writes_memory=["event_templates"],
-)
+    try:
+        template = prompts.load(name)
+        instruction = template.system
+        model_name = MODEL_BY_TIER.get(template.model, settings.GEMINI_FLASH_MODEL)
+    except prompts.PromptError as exc:
+        logger.warning("Prompt template '%s' unavailable (%s); using minimal instruction.", name, exc)
+        instruction = f"You are the {name} agent in a hackathon launch pipeline."
+        model_name = settings.GEMINI_FLASH_MODEL
+    return AgentSpec(
+        name=name,
+        model_name=model_name,
+        instruction=instruction,
+        reads_memory=reads_memory,
+        writes_memory=writes_memory,
+    )
 
-CRITIC_SPEC = AgentSpec(
-    name="critic",
-    model_name=settings.GEMINI_PRO_MODEL,
-    instruction="Review consistency, completeness, quality, actionability, and contradictions.",
-    reads_memory=[],
-    writes_memory=[],
-)
+
+AGENT_MEMORY_SCOPES: dict[str, tuple[list[str], list[str]]] = {
+    "research": (["event_templates", "sponsor_templates"], ["event_templates", "sponsor_templates"]),
+    "branding": (["event_templates", "campaign_history"], ["marketing_assets"]),
+    "content": (["marketing_assets"], ["marketing_assets"]),
+    "social_media": (["campaign_history", "marketing_assets"], ["campaign_history"]),
+    "operations": (["event_templates", "campaign_history"], ["event_templates"]),
+    "critic": ([], []),
+}
+
+
+def _spec(name: str) -> AgentSpec:
+    reads, writes = AGENT_MEMORY_SCOPES.get(name, ([], []))
+    return spec_for(name, reads, writes)
+
+
+def _render_user_prompt(name: str, variables: dict[str, object]) -> str:
+    """Render an agent's user prompt, degrading to a summary line on failure."""
+
+    try:
+        _, user = prompts.render(name, variables)
+        return user
+    except prompts.PromptError as exc:
+        logger.warning("Prompt render failed for '%s' (%s); using compact prompt.", name, exc)
+        return "; ".join(f"{key}={value}" for key, value in variables.items())
+
+
+async def _memory_context(collection: str, query: str, top_k: int = 3) -> str:
+    """Render retrieved memories as prompt-ready text."""
+
+    rows = await recall(collection, query, top_k=top_k)
+    if not rows:
+        return "(no prior events matched this theme)"
+    return "\n".join(
+        f"- {row.get('payload', {}).get('summary', 'memory')} (score {row.get('score', 0):.2f})"
+        for row in rows
+    )
 
 
 def _keyword_tokens(text: str) -> list[str]:
@@ -151,8 +170,17 @@ def _memory_refs(collection: str, rows: list[dict]) -> list[MemoryReference]:
 async def run_research_agent(brief: EventLaunchRequest) -> ResearchOutput:
     """Run the Research agent."""
 
-    prompt = f"Research hackathon theme={brief.theme}; goals={brief.goals}; audience={brief.audience}."
-    generated = await maybe_generate_json_with_gemini(RESEARCH_SPEC, prompt, ResearchOutput)
+    memory_context = await _memory_context("event_templates", brief.theme)
+    prompt = _render_user_prompt(
+        "research",
+        {
+            "theme": brief.theme,
+            "goals": brief.goals,
+            "audience": brief.audience,
+            "memory_context": memory_context,
+        },
+    )
+    generated = await maybe_generate_json_with_gemini(_spec("research"), prompt, ResearchOutput)
     if generated is not None:
         return generated
 
@@ -255,8 +283,16 @@ async def run_branding_agent(
 ) -> BrandingOutput:
     """Run the Branding agent."""
 
-    prompt = f"Brand theme={brief.theme}; research={research.model_dump_json()}"
-    generated = await maybe_generate_json_with_gemini(BRANDING_SPEC, prompt, BrandingOutput)
+    prompt = _render_user_prompt(
+        "branding",
+        {
+            "theme": brief.theme,
+            "research_summary": research.summary,
+            "positioning": research.recommended_positioning,
+            "tone_hint": ", ".join(research.trends[:3]),
+        },
+    )
+    generated = await maybe_generate_json_with_gemini(_spec("branding"), prompt, BrandingOutput)
     if generated is not None:
         return generated
 
@@ -329,8 +365,17 @@ async def run_content_agent(
 ) -> ContentOutput:
     """Run the Content agent."""
 
-    prompt = f"Write launch content for {branding.selected_name}; brief={brief.model_dump_json()}"
-    generated = await maybe_generate_json_with_gemini(CONTENT_SPEC, prompt, ContentOutput)
+    prompt = _render_user_prompt(
+        "content",
+        {
+            "event_name": branding.selected_name,
+            "tagline": branding.tagline,
+            "theme": brief.theme,
+            "audience": brief.audience,
+            "goals": brief.goals,
+        },
+    )
+    generated = await maybe_generate_json_with_gemini(_spec("content"), prompt, ContentOutput)
     if generated is not None:
         return generated
 
@@ -550,8 +595,16 @@ async def run_social_media_agent(
 ) -> SocialMediaOutput:
     """Run the Social Media agent."""
 
-    prompt = f"Create social campaign for {branding.selected_name}."
-    generated = await maybe_generate_json_with_gemini(SOCIAL_SPEC, prompt, SocialMediaOutput)
+    prompt = _render_user_prompt(
+        "social_media",
+        {
+            "event_name": branding.selected_name,
+            "tagline": branding.tagline,
+            "duration_weeks": 4,
+            "audience": brief.audience,
+        },
+    )
+    generated = await maybe_generate_json_with_gemini(_spec("social_media"), prompt, SocialMediaOutput)
     if generated is not None:
         return generated
 
@@ -659,8 +712,16 @@ async def run_operations_agent(
 ) -> OperationsOutput:
     """Run the Operations agent."""
 
-    prompt = f"Create operations plan for {branding.selected_name}; constraints={brief.constraints.model_dump_json()}"
-    generated = await maybe_generate_json_with_gemini(OPERATIONS_SPEC, prompt, OperationsOutput)
+    prompt = _render_user_prompt(
+        "operations",
+        {
+            "event_name": branding.selected_name,
+            "theme": brief.theme,
+            "constraints": brief.constraints.model_dump_json(),
+            "duration_days": brief.constraints.duration_days,
+        },
+    )
+    generated = await maybe_generate_json_with_gemini(_spec("operations"), prompt, OperationsOutput)
     if generated is not None:
         return generated
 
@@ -799,8 +860,18 @@ async def run_critic_agent(
 ) -> CriticReviewOutput:
     """Run the Critic agent."""
 
-    prompt = f"Review package for {branding.selected_name}."
-    generated = await maybe_generate_json_with_gemini(CRITIC_SPEC, prompt, CriticReviewOutput)
+    prompt = _render_user_prompt(
+        "critic",
+        {
+            "event_name": branding.selected_name,
+            "rubric": "consistency, completeness, quality, actionability",
+            "package_summary": (
+                f"{len(content.outreach_emails)} emails, {len(social_media.posts)} posts, "
+                f"{len(operations.tasks)} tasks, budget total {operations.budget_total:.0f}"
+            ),
+        },
+    )
+    generated = await maybe_generate_json_with_gemini(_spec("critic"), prompt, CriticReviewOutput)
     if generated is not None:
         return generated
 

@@ -37,6 +37,26 @@ const en = {
     errorResponse: "ERROR RESPONSE",
     unchecked: "NOT CHECKED YET",
   },
+  promptStudio: {
+    eyebrow: "PROMPT STUDIO",
+    title: "Agent prompt templates",
+    subtitle:
+      "Each agent's system instruction and user prompt, versioned on disk. The preview renders your unsaved edits with the same renderer the pipeline uses.",
+    readOnly: "Prompt editing is disabled on this deployment. Templates are shown read-only.",
+    variables: "PREVIEW VARIABLES",
+    missing: "Missing: {list}",
+    systemInstruction: "System instruction",
+    userPrompt: "User prompt",
+    preview: "RENDERED PREVIEW",
+    saveVersion: "Save new version",
+    unsaved: "Unsaved changes",
+    saved: "Saved",
+    history: "VERSION HISTORY",
+    current: "CURRENT",
+    revert: "Revert to this",
+    savedTitle: "Prompt saved",
+    savedDetail: "{name} is now at version {version}. The next run uses it.",
+  },
   coldStart: {
     wakingTitle: "Waking the backend up…",
     wakingDetail:
@@ -72,6 +92,7 @@ const en = {
     memoryExplorer: "Memory explorer",
     messageGenerator: "Message generator",
     analytics: "Analytics",
+    promptStudio: "Prompt studio",
     settings: "Settings",
   },
   dashboard: {

@@ -10,6 +10,7 @@ import {
   Database,
   MessagesSquare,
   BarChart3,
+  FileCode2,
   Settings as SettingsIcon,
   Menu,
   X,
@@ -32,7 +33,8 @@ const NAV_KEYS = [
   { code: "04", href: "/memory-explorer", icon: Database, labelKey: "nav.memoryExplorer", titleKey: "nav.memoryExplorer" },
   { code: "05", href: "/message-generator", icon: MessagesSquare, labelKey: "nav.messageGenerator", titleKey: "nav.messageGenerator" },
   { code: "06", href: "/analytics", icon: BarChart3, labelKey: "nav.analytics", titleKey: "nav.analytics" },
-  { code: "07", href: "/settings", icon: SettingsIcon, labelKey: "nav.settings", titleKey: "nav.settings" },
+  { code: "07", href: "/prompt-studio", icon: FileCode2, labelKey: "nav.promptStudio", titleKey: "nav.promptStudio" },
+  { code: "08", href: "/settings", icon: SettingsIcon, labelKey: "nav.settings", titleKey: "nav.settings" },
 ];
 
 const EXTRA_NAV_LABELS = {

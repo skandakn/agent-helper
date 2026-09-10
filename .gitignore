@@ -11,3 +11,4 @@ node_modules/
 !.env.example
 node_modules/
 .next/
+backend/app/prompts/_versions/

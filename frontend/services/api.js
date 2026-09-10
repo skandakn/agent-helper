@@ -305,6 +305,38 @@ export const api = {
     return request(`/memory/search?${params.toString()}`);
   },
 
+  // ── prompt templates ─────────────────────────────────────────────
+  async listPrompts() {
+    return request("/prompts");
+  },
+
+  async getPrompt(name) {
+    return request(`/prompts/${encodeURIComponent(name)}`);
+  },
+
+  async getPromptVersions(name) {
+    return request(`/prompts/${encodeURIComponent(name)}/versions`);
+  },
+
+  /** Render a template (optionally unsaved editor content) without storing it. */
+  async previewPrompt(name, { variables = {}, system, user } = {}) {
+    return request(`/prompts/${encodeURIComponent(name)}/preview`, {
+      method: "POST",
+      body: JSON.stringify({ variables, system, user }),
+    });
+  },
+
+  async savePrompt(name, { system, user, description }) {
+    return request(`/prompts/${encodeURIComponent(name)}`, {
+      method: "PUT",
+      body: JSON.stringify({ system, user, description }),
+    });
+  },
+
+  async revertPrompt(name, version) {
+    return request(`/prompts/${encodeURIComponent(name)}/revert/${version}`, { method: "POST" });
+  },
+
   // ── analytics ─────────────────────────────────────────────────────
   async getAnalyticsSummary() {
     return request("/analytics/overview");

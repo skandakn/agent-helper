@@ -8,7 +8,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import agents, analytics, auth, events, health, users
+from app.api import agents, analytics, auth, events, health, prompts, users
 from app.api.health import mark_ready
 from app.core.config import settings
 from app.db.session import init_db
@@ -32,6 +32,7 @@ app.include_router(health.router)
 app.include_router(events.router)
 app.include_router(agents.router)
 app.include_router(analytics.router)
+app.include_router(prompts.router)
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(ws_router)

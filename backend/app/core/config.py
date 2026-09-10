@@ -48,6 +48,15 @@ class Settings(BaseSettings):
     CLERK_AUDIENCE: str | None = None
     CLERK_AUTHORIZED_PARTIES: list[str] = Field(default_factory=list)
 
+    #: Where versioned agent prompt templates are read from and written to.
+    #: Defaults to app/prompts. Point it at a writable volume in deployments
+    #: whose application directory is read-only.
+    PROMPT_TEMPLATES_DIR: str = ""
+    #: Whether the prompt templates can be edited through the API. Editing
+    #: changes agent behaviour for every user of the instance, so production
+    #: deployments should leave this off and change templates through a deploy.
+    PROMPT_EDITING_ENABLED: bool = True
+
     EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
     EMBEDDING_DIM: int = 384
     USE_SENTENCE_TRANSFORMERS: bool = False
