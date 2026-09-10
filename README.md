@@ -1,4 +1,4 @@
-# Hackathon Launch & Marketing Agent
+#Hackathon Launch & Marketing Agent
 
 Production-oriented MVP for a multi-agent hackathon launch system. It takes a hackathon brief and generates a launch-ready package with research, branding, landing page copy, outreach emails, sponsor pitch outline, social campaign, operations timeline, budget, risks, and critic review.
 
