@@ -220,6 +220,15 @@ export const api = {
     return request(`/events/${eventId}/output`);
   },
 
+  /**
+   * Buffered progress frames after `since` — the REST twin of the WebSocket
+   * replay, used when a socket cannot be established or when the server could
+   * not prove its replay was complete.
+   */
+  async getEventProgress(eventId, since = 0) {
+    return request(`/events/${eventId}/progress?since=${Number(since) || 0}`);
+  },
+
   // Used by Campaign Builder's save/edit path.
   async updateEvent(eventId, patch) {
     return request(`/events/${eventId}/output`, { method: "PATCH", body: JSON.stringify(patch) });

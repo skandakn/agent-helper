@@ -231,6 +231,14 @@ class AgentProgressEvent(BaseModel):
     message: str
     data: dict = Field(default_factory=dict)
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+    seq: int = Field(
+        default=0,
+        description=(
+            "Monotonic per-run sequence number, assigned by the WebSocket layer on "
+            "broadcast. Clients send the highest seq they hold as ?since= when "
+            "reconnecting so missed frames are replayed."
+        ),
+    )
 
 
 class AgentRunOutput(BaseModel):

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -24,6 +24,7 @@ from app.models.event import (
     ProjectRead,
 )
 from app.tasks.agent_runner import run_event_pipeline
+from app.ws import replay_since
 
 router = APIRouter(tags=["events"])
 
@@ -148,6 +149,24 @@ async def get_event_status(
         last_error=event.last_error,
         progress=progress,
     )
+
+
+@router.get("/events/{event_id}/progress")
+async def get_event_progress(
+    event_id: int,
+    since: int = Query(default=0, ge=0),
+    user_id: int = Depends(get_request_user_id),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Return buffered progress frames after ``since``.
+
+    REST twin of the WebSocket replay, for clients that cannot establish a
+    socket at all (corporate proxy, blocked upgrade) or that reconnected to an
+    instance whose buffer could not prove a complete replay.
+    """
+
+    await get_scoped_event(db, event_id, user_id)
+    return replay_since(str(event_id), since)
 
 
 @router.get("/events/{event_id}/output", response_model=EventOutputResponse)
