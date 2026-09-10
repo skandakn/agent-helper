@@ -10,14 +10,18 @@ import {
   Database,
   MessagesSquare,
   BarChart3,
+  FileCode2,
   Settings as SettingsIcon,
   Menu,
   X,
   LogIn,
   UserPlus,
 } from "lucide-react";
-import { api } from "../services/api";
+import { badgeClass, stateLabelKey } from "../lib/connection";
+import { useConnection } from "../lib/useConnection";
+import { useColdStart } from "../lib/coldstart";
 import { useTranslation } from "../lib/i18n/context";
+import ColdStartBanner from "./ColdStartBanner";
 import LanguageSwitcher from "./LanguageSwitcher";
 import { clerkFrontendConfigured } from "../lib/auth";
 
@@ -29,7 +33,8 @@ const NAV_KEYS = [
   { code: "04", href: "/memory-explorer", icon: Database, labelKey: "nav.memoryExplorer", titleKey: "nav.memoryExplorer" },
   { code: "05", href: "/message-generator", icon: MessagesSquare, labelKey: "nav.messageGenerator", titleKey: "nav.messageGenerator" },
   { code: "06", href: "/analytics", icon: BarChart3, labelKey: "nav.analytics", titleKey: "nav.analytics" },
-  { code: "07", href: "/settings", icon: SettingsIcon, labelKey: "nav.settings", titleKey: "nav.settings" },
+  { code: "07", href: "/prompt-studio", icon: FileCode2, labelKey: "nav.promptStudio", titleKey: "nav.promptStudio" },
+  { code: "08", href: "/settings", icon: SettingsIcon, labelKey: "nav.settings", titleKey: "nav.settings" },
 ];
 
 const EXTRA_NAV_LABELS = {
@@ -77,22 +82,12 @@ function AccountControls() {
 export default function Layout({ children }) {
   const router = useRouter();
   const { t, lang } = useTranslation();
-  const [online, setOnline] = useState(null);
+  const conn = useConnection({ intervalMs: 20000, deep: true });
+  const connection = conn.state;
+  // Layered on the same probe loop, so cold-start detection adds no second
+  // stream of requests against an instance that is already struggling to wake.
+  const warmup = useColdStart(conn);
   const [mobileOpen, setMobileOpen] = useState(false);
-
-  useEffect(() => {
-    let mounted = true;
-    async function ping() {
-      const ok = await api.checkHealth();
-      if (mounted) setOnline(ok);
-    }
-    ping();
-    const id = setInterval(ping, 15000);
-    return () => {
-      mounted = false;
-      clearInterval(id);
-    };
-  }, []);
 
   useEffect(() => {
     setMobileOpen(false);
@@ -130,10 +125,8 @@ export default function Layout({ children }) {
         <div className="sidebar-foot">
           <LanguageSwitcher />
           <div className="system-status">
-            <span
-              className={`status-dot ${online === null ? "" : online ? "ok" : "error"}`}
-            />
-            {online === null ? t("layout.checking") : online ? t("layout.backendOnline") : t("layout.backendUnreachable")}
+            <span className={`status-dot ${badgeClass(connection) === "warn" ? "" : badgeClass(connection)}`} />
+            {t(stateLabelKey(connection))}
           </div>
         </div>
       </aside>
@@ -167,13 +160,19 @@ export default function Layout({ children }) {
           <div className="topbar-actions">
             <LanguageSwitcher />
             <AccountControls />
-            <span className={`badge ${online === false ? "error" : "ok"}`}>
-              <span className={`status-dot ${online === false ? "error" : "ok"}`} />
-              {online === false ? t("layout.systemHold") : t("layout.systemNominal")}
+            {/* This pill used to render a green "SYSTEM NOMINAL" before the
+                first probe had returned anything. It now mirrors the same
+                connection state machine as the sidebar. */}
+            <span className={`badge ${badgeClass(connection)}`}>
+              <span className={`status-dot ${badgeClass(connection) === "warn" ? "" : badgeClass(connection)}`} />
+              {t(stateLabelKey(connection))}
             </span>
           </div>
         </header>
-        <main className="content">{children}</main>
+        <main className="content">
+          <ColdStartBanner warmup={warmup} />
+          {children}
+        </main>
       </div>
     </div>
   );

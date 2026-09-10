@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     QDRANT_URL: str = "http://qdrant:6333"
     QDRANT_API_KEY: SecretStr | None = None
     QDRANT_ENABLED: bool = True
+    #: Rebuild a collection whose stored vector size does not match
+    #: EMBEDDING_DIM. This DELETES that collection's points, so it is opt-in;
+    #: by default a mismatched collection is reported and routed to the
+    #: in-process fallback instead.
+    QDRANT_RECREATE_ON_MISMATCH: bool = False
 
     POSTGRES_URL: str = "postgresql+asyncpg://user:pass@postgres:5432/hackathon_db"
     AUTO_CREATE_TABLES: bool = True
@@ -47,6 +52,15 @@ class Settings(BaseSettings):
     CLERK_JWKS_URL: str | None = None
     CLERK_AUDIENCE: str | None = None
     CLERK_AUTHORIZED_PARTIES: list[str] = Field(default_factory=list)
+
+    #: Where versioned agent prompt templates are read from and written to.
+    #: Defaults to app/prompts. Point it at a writable volume in deployments
+    #: whose application directory is read-only.
+    PROMPT_TEMPLATES_DIR: str = ""
+    #: Whether the prompt templates can be edited through the API. Editing
+    #: changes agent behaviour for every user of the instance, so production
+    #: deployments should leave this off and change templates through a deploy.
+    PROMPT_EDITING_ENABLED: bool = True
 
     EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
     EMBEDDING_DIM: int = 384

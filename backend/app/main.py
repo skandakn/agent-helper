@@ -8,7 +8,8 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import agents, analytics, auth, events, users
+from app.api import agents, analytics, auth, events, health, prompts, users
+from app.api.health import mark_ready
 from app.core.config import settings
 from app.db.session import init_db
 from app.services.memory import init_collections
@@ -27,9 +28,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(health.router)
 app.include_router(events.router)
 app.include_router(agents.router)
 app.include_router(analytics.router)
+app.include_router(prompts.router)
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(ws_router)
@@ -50,5 +53,9 @@ async def startup() -> None:
             logger.warning("Database not ready (attempt %s/15): %s", attempt, exc)
             await asyncio.sleep(2)
     else:
+        # Record the failure before raising so /health can report "starting"
+        # with a reason rather than the process dying silently behind a proxy.
+        mark_ready(f"Database initialization failed: {last_exc}")
         raise RuntimeError(f"Database initialization failed: {last_exc}") from last_exc
     await init_collections()
+    mark_ready()

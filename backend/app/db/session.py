@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -80,6 +81,28 @@ async def init_db() -> None:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+
+async def check_database(timeout_seconds: float = 3.0) -> tuple[bool, float, str]:
+    """Probe the database with a bounded ``SELECT 1``.
+
+    Returns ``(reachable, latency_ms, detail)``. Never raises: the health
+    endpoint has to answer even when Postgres is gone.
+    """
+
+    from sqlalchemy import text
+
+    started = time.perf_counter()
+    try:
+        async with asyncio.timeout(timeout_seconds):
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+        return True, (time.perf_counter() - started) * 1000, engine.url.get_backend_name()
+    except TimeoutError:
+        return False, (time.perf_counter() - started) * 1000, f"No response within {timeout_seconds}s."
+    except Exception as exc:  # pragma: no cover - depends on deployment state
+        logger.warning("Database health probe failed: %s", exc)
+        return False, (time.perf_counter() - started) * 1000, str(exc)[:200]
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:

@@ -12,7 +12,15 @@ from app.core.auth import get_optional_auth_claims, get_request_user_id
 from app.db.models import AgentRun, Event, Project
 from app.db.session import get_db
 from app.models.agent import AgentRunOutput
-from app.services.memory import COLLECTIONS, search_memory
+from app.services.memory import (
+    COLLECTIONS,
+    bootstrap_collections,
+    bootstrap_report,
+    list_points,
+    memory_stats,
+    search_memory,
+    verify_fallback_parity,
+)
 
 router = APIRouter(tags=["agents"])
 
@@ -72,3 +80,52 @@ async def memory_search(
         raise HTTPException(status_code=400, detail=f"Unknown collection: {collection}")
     results = await search_memory(query=query, top_k=top_k, collection=collection)
     return {"query": query, "collection": collection, "results": results}
+
+
+@router.get("/memory/status")
+async def memory_status(
+    _claims: dict[str, Any] | None = Depends(get_optional_auth_claims),
+) -> dict:
+    """Which backend memory is really running on, and what is in it.
+
+    A search returning nothing used to be indistinguishable from memory
+    silently running on an empty in-process fallback.
+    """
+
+    return await memory_stats()
+
+
+@router.get("/memory/bootstrap")
+async def memory_bootstrap_report(
+    _claims: dict[str, Any] | None = Depends(get_optional_auth_claims),
+) -> dict:
+    """The result of the last collection bootstrap."""
+
+    return bootstrap_report()
+
+
+@router.post("/memory/bootstrap")
+async def rerun_memory_bootstrap(_user_id: int = Depends(get_request_user_id)) -> dict:
+    """Re-run the bootstrap. Idempotent, and the way to recover a late Qdrant."""
+
+    return await bootstrap_collections(force=True)
+
+
+@router.get("/memory/points")
+async def memory_points(
+    collection: str = Query(...),
+    limit: int = Query(default=20, ge=1, le=100),
+    _claims: dict[str, Any] | None = Depends(get_optional_auth_claims),
+) -> dict:
+    """Raw stored records for one collection, for the inspector panel."""
+
+    if collection not in COLLECTIONS:
+        raise HTTPException(status_code=400, detail=f"Unknown collection: {collection}")
+    return await list_points(collection, limit=limit)
+
+
+@router.post("/memory/parity")
+async def memory_parity(_user_id: int = Depends(get_request_user_id)) -> dict:
+    """Run the fallback parity self-test."""
+
+    return await verify_fallback_parity()

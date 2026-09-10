@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, CheckCircle2, FileWarning, Rocket, RadioTower } from "lucide-react";
-import { connectToEvent } from "../services/websocket";
+import { LINK, connectToEvent } from "../services/websocket";
 import { api } from "../services/api";
 import { useEventStore } from "../store/event";
 import { STAGES } from "../lib/stages";
@@ -32,10 +32,13 @@ export default function AgentMonitor() {
   const [stageData, setStageData] = useState({});
   const [eventRecord, setEventRecord] = useState(null);
   const [finalPackage, setFinalPackage] = useState(null);
-  const [link, setLink] = useState("connecting");
+  const [link, setLink] = useState(LINK.CONNECTING);
+  const [linkMeta, setLinkMeta] = useState({ attempt: 0 });
   const [expanded, setExpanded] = useState(null);
   const [failure, setFailure] = useState(null);
   const pollRef = useRef(null);
+  const handleRef = useRef(null);
+  const seenSeqRef = useRef(new Set());
 
   const mission = recent.find((m) => String(m.id) === String(event_id)) || eventRecord;
 
@@ -52,53 +55,82 @@ export default function AgentMonitor() {
     setEventRecord(null);
     setFinalPackage(null);
     setFailure(null);
-    setLink("connecting");
+    setLink(LINK.CONNECTING);
+    setLinkMeta({ attempt: 0 });
+    seenSeqRef.current = new Set();
 
     api.getEvent(event_id).then(setEventRecord).catch(() => {
       /* local-only missions may not have a backend record yet */
     });
 
-    const handle = connectToEvent(event_id, {
-      onOpen: () => setLink("live"),
-      onClose: () => setLink((s) => (s === "live" ? "reconnecting" : s)),
-      onError: () => setLink((s) => (s === "live" ? "reconnecting" : s)),
-      onMessage: (msg) => {
-        if (!msg || !msg.stage) return;
+    function applyMessage(msg) {
+      if (!msg || !msg.stage) return;
 
-        if (msg.stage === "done") {
-          const doneProgress = completeProgress();
-          setProgress((p) => ({ ...p, ...doneProgress }));
-          setFinalPackage(msg.data);
-          updateRecentMission(event_id, { status: "ready", progress: doneProgress });
-          if (getPrefs().notifyOnComplete && typeof window !== "undefined" && "Notification" in window) {
-            if (Notification.permission === "granted") {
-              new Notification(t("agentMonitor.packageCompiled"), {
-                body: `${t("dashboard.mission")} #${event_id}`,
-              });
-            }
+      // Replayed frames can overlap with live ones after a reconnect.
+      if (typeof msg.seq === "number") {
+        if (seenSeqRef.current.has(msg.seq)) return;
+        seenSeqRef.current.add(msg.seq);
+      }
+
+      if (msg.stage === "done") {
+        const doneProgress = completeProgress();
+        setProgress((p) => ({ ...p, ...doneProgress }));
+        setFinalPackage(msg.data);
+        updateRecentMission(event_id, { status: "ready", progress: doneProgress });
+        if (getPrefs().notifyOnComplete && typeof window !== "undefined" && "Notification" in window) {
+          if (Notification.permission === "granted") {
+            new Notification(t("agentMonitor.packageCompiled"), {
+              body: `${t("dashboard.mission")} #${event_id}`,
+            });
           }
-          return;
         }
+        return;
+      }
 
-        if (STAGE_KEYS.includes(msg.stage)) {
-          const pct = msg.status === "completed" ? 100 : Math.max(0, Math.min(99, Number(msg.pct) || 0));
-          setProgress((p) => ({ ...p, [msg.stage]: pct }));
-        }
+      if (STAGE_KEYS.includes(msg.stage)) {
+        const pct = msg.status === "completed" ? 100 : Math.max(0, Math.min(99, Number(msg.pct) || 0));
+        setProgress((p) => ({ ...p, [msg.stage]: pct }));
+      }
 
-        if (msg.data && Object.keys(msg.data).length) {
-          setStageData((d) => ({ ...d, ...msg.data }));
-        }
-        if (msg.stage === "failed") {
-          setFailure(msg.message || null);
-          updateRecentMission(event_id, { status: "failed" });
-          clearInterval(pollRef.current);
-        }
+      if (msg.data && Object.keys(msg.data).length) {
+        setStageData((d) => ({ ...d, ...msg.data }));
+      }
+      if (msg.stage === "failed") {
+        setFailure(msg.message || null);
+        updateRecentMission(event_id, { status: "failed" });
+        clearInterval(pollRef.current);
+      }
+    }
+
+    /**
+     * Pull whatever the socket could not replay. Runs when the server reports
+     * an incomplete replay window, and once on mount so a monitor opened after
+     * a run started still sees the stages it was not around for.
+     */
+    async function reconcileProgress(since) {
+      try {
+        const log = await api.getEventProgress(event_id, since);
+        (log?.events || []).forEach(applyMessage);
+        if (typeof log?.head === "number") handleRef.current?.setLastSeq(log.head);
+      } catch {
+        /* status polling below is the last-resort fallback */
+      }
+    }
+
+    const handle = connectToEvent(event_id, {
+      onState: (state, meta) => {
+        setLink(state);
+        setLinkMeta(meta);
       },
+      onMessage: applyMessage,
+      onReplayGap: ({ lastSeq }) => reconcileProgress(lastSeq),
     });
+    handleRef.current = handle;
+    reconcileProgress(0);
 
     async function refreshStatus() {
       try {
-        const status = await api.getEventStatus(event_id);
+        const status = await api.getEventStatus(event_id, { silent: true });
         const nextProgress = normalizeProgress(status?.progress, status?.status);
         if (Object.keys(nextProgress).length) {
           setProgress((p) => ({ ...p, ...nextProgress }));
@@ -153,8 +185,20 @@ export default function AgentMonitor() {
           <div className="eyebrow">{t("dashboard.mission")} #{event_id}</div>
           <h1 style={{ fontSize: 30, marginTop: 8 }}>{mission?.theme || t("agentMonitor.pipeline")}</h1>
         </div>
-        <LinkStatus state={link} t={t} />
+        <LinkStatus state={link} meta={linkMeta} t={t} />
       </div>
+
+      {(link === LINK.RECONNECTING || link === LINK.OFFLINE) && (
+        <div className="error-banner">
+          <RadioTower size={17} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span style={{ fontSize: 15 }}>
+            {link === LINK.OFFLINE
+              ? t("agentMonitor.offlineNotice")
+              : t("agentMonitor.reconnectingNotice", { attempt: linkMeta.attempt || 1 })}{" "}
+            {t("agentMonitor.replayNotice")}
+          </span>
+        </div>
+      )}
 
       <div className="panel panel-pad panel-colorful">
         <div className="manifest">
@@ -243,16 +287,21 @@ export default function AgentMonitor() {
   );
 }
 
-function LinkStatus({ state, t }) {
-  const meta = {
-    connecting: { label: t("agentMonitor.connecting"), cls: "warn" },
-    live: { label: t("agentMonitor.liveLink"), cls: "ok" },
-    reconnecting: { label: t("agentMonitor.reconnecting"), cls: "error" },
-  }[state] || { label: state.toUpperCase(), cls: "" };
+function LinkStatus({ state, meta, t }) {
+  const view = {
+    [LINK.CONNECTING]: { label: t("agentMonitor.connecting"), cls: "warn" },
+    [LINK.LIVE]: { label: t("agentMonitor.liveLink"), cls: "ok" },
+    [LINK.RECONNECTING]: { label: t("agentMonitor.reconnecting"), cls: "warn" },
+    [LINK.OFFLINE]: { label: t("agentMonitor.linkOffline"), cls: "error" },
+    [LINK.CLOSED]: { label: t("agentMonitor.linkClosed"), cls: "" },
+  }[state] || { label: String(state).toUpperCase(), cls: "" };
+
+  const attempt = state === LINK.RECONNECTING && meta?.attempt ? ` ${meta.attempt}` : "";
 
   return (
-    <span className={`badge ${meta.cls}`}>
-      <RadioTower size={13} /> {meta.label}
+    <span className={`badge ${view.cls}`}>
+      <RadioTower size={13} /> {view.label}
+      {attempt}
     </span>
   );
 }
