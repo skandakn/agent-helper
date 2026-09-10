@@ -12,7 +12,11 @@ Production-oriented MVP for a multi-agent hackathon launch system. It takes a ha
   Set `PROMPT_TEMPLATES_DIR` to relocate them and `PROMPT_EDITING_ENABLED=false`
   to make them read-only in production.
 - Agents: Orchestrator coordinates Research, Branding, Content, Social Media, Operations, and Critic agents. Each agent has narrow inputs/outputs and validated JSON contracts. `AGENT_RUNTIME=gemini` uses Gemini when a Google key is configured and deterministic fallback when no key is present.
-- Memory: Qdrant collections for long-term memory, with a clearly labeled in-process fallback for local MVP runs.
+- Memory: Qdrant collections for long-term memory, bootstrapped idempotently
+  (create what is missing, verify what exists, refuse to silently drop a
+  collection whose vector size does not match `EMBEDDING_DIM`), with a labelled
+  in-process fallback and a parity self-test that checks the fallback answers
+  the same questions the same way.
 - Tooling: MCP servers expose Qdrant memory tools and safe utility tools.
 - Deployment: Docker Compose starts Postgres, Qdrant, FastAPI, Next.js, and MCP services.
 
@@ -83,6 +87,11 @@ Contracts live in `backend/app/models/agent.py`.
 - `GET /agents/{run_id}/output`: one agent run.
 - `GET /agents?event_id={id}`: recent runs.
 - `GET /memory/search?query=...`: Qdrant/fallback memory search.
+- `GET /memory/status`: which backend memory is really on, per collection, with
+  record counts and the last bootstrap report.
+- `GET /memory/points?collection=`: raw stored records, for the inspector panel.
+- `POST /memory/bootstrap`: re-run the idempotent collection bootstrap.
+- `POST /memory/parity`: run the fallback parity self-test.
 - `GET /analytics/overview`: dashboard metrics.
 - `POST /auth/register`: optional local JWT registration for API demos.
 - `POST /auth/login`: optional local JWT login for API demos.

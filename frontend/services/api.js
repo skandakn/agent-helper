@@ -305,6 +305,23 @@ export const api = {
     return request(`/memory/search?${params.toString()}`);
   },
 
+  /** Which backend memory is really on, per collection, plus bootstrap detail. */
+  async getMemoryStatus() {
+    return request("/memory/status");
+  },
+
+  async getMemoryPoints(collection, limit = 20) {
+    return request(`/memory/points?collection=${encodeURIComponent(collection)}&limit=${limit}`);
+  },
+
+  async runMemoryParity() {
+    return request("/memory/parity", { method: "POST" });
+  },
+
+  async rerunMemoryBootstrap() {
+    return request("/memory/bootstrap", { method: "POST" });
+  },
+
   // ── prompt templates ─────────────────────────────────────────────
   async listPrompts() {
     return request("/prompts");

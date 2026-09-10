@@ -37,6 +37,20 @@ const en = {
     errorResponse: "ERROR RESPONSE",
     unchecked: "NOT CHECKED YET",
   },
+  memoryInspector: {
+    title: "MEMORY BACKEND",
+    backend: "Backend",
+    embedding: "Embeddings",
+    storedRecords: "Stored records",
+    collections: "COLLECTIONS",
+    empty: "No records stored in this collection yet.",
+    degraded:
+      "These collections are running on the in-process fallback and will not persist: {list}. See the collection detail for why.",
+    parity: "FALLBACK PARITY",
+    parityDesc:
+      "Writes a uniquely worded probe record, searches for it, and checks the properties the pipeline depends on: the write is retrievable, it outranks unrelated records, scores stay within [0, 1], and payload filters exclude non-matches. Probe records are removed afterwards.",
+    runParity: "Run self-test",
+  },
   promptStudio: {
     eyebrow: "PROMPT STUDIO",
     title: "Agent prompt templates",

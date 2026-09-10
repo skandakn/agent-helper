@@ -3,6 +3,7 @@ import { Search, Loader2, DatabaseZap } from "lucide-react";
 import { api } from "../services/api";
 import { useTranslation } from "../lib/i18n/context";
 import JsonBlock from "./JsonBlock";
+import MemoryInspector from "./MemoryInspector";
 
 const COLLECTION_KEYS = [
   "event_templates",
@@ -92,6 +93,8 @@ export default function MemoryExplorer() {
           <p>{t("memoryExplorer.noResults")}</p>
         </div>
       )}
+
+      <MemoryInspector />
 
       {results && results.length > 0 && (
         <div className="stack">

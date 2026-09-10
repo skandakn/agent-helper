@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     QDRANT_URL: str = "http://qdrant:6333"
     QDRANT_API_KEY: SecretStr | None = None
     QDRANT_ENABLED: bool = True
+    #: Rebuild a collection whose stored vector size does not match
+    #: EMBEDDING_DIM. This DELETES that collection's points, so it is opt-in;
+    #: by default a mismatched collection is reported and routed to the
+    #: in-process fallback instead.
+    QDRANT_RECREATE_ON_MISMATCH: bool = False
 
     POSTGRES_URL: str = "postgresql+asyncpg://user:pass@postgres:5432/hackathon_db"
     AUTO_CREATE_TABLES: bool = True
