@@ -18,7 +18,9 @@ import {
 } from "lucide-react";
 import { badgeClass, stateLabelKey } from "../lib/connection";
 import { useConnection } from "../lib/useConnection";
+import { useColdStart } from "../lib/coldstart";
 import { useTranslation } from "../lib/i18n/context";
+import ColdStartBanner from "./ColdStartBanner";
 import LanguageSwitcher from "./LanguageSwitcher";
 import { clerkFrontendConfigured } from "../lib/auth";
 
@@ -78,7 +80,11 @@ function AccountControls() {
 export default function Layout({ children }) {
   const router = useRouter();
   const { t, lang } = useTranslation();
-  const { state: connection } = useConnection({ intervalMs: 20000, deep: true });
+  const conn = useConnection({ intervalMs: 20000, deep: true });
+  const connection = conn.state;
+  // Layered on the same probe loop, so cold-start detection adds no second
+  // stream of requests against an instance that is already struggling to wake.
+  const warmup = useColdStart(conn);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
@@ -161,7 +167,10 @@ export default function Layout({ children }) {
             </span>
           </div>
         </header>
-        <main className="content">{children}</main>
+        <main className="content">
+          <ColdStartBanner warmup={warmup} />
+          {children}
+        </main>
       </div>
     </div>
   );

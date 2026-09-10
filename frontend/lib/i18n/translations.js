@@ -37,6 +37,16 @@ const en = {
     errorResponse: "ERROR RESPONSE",
     unchecked: "NOT CHECKED YET",
   },
+  coldStart: {
+    wakingTitle: "Waking the backend up…",
+    wakingDetail:
+      "The API sleeps when it hasn't been used for a while. It's starting now — this usually takes under a minute, and nothing is lost.",
+    readyTitle: "Backend is up.",
+    readyDetail: "It took about {seconds}s to wake.",
+    failedTitle: "The backend still isn't answering.",
+    failedDetail:
+      "It's been more than {seconds}s, which is longer than a normal cold start. Check Settings for the reason.",
+  },
   dependencies: {
     database: "Database",
     memory: "Long-term memory",

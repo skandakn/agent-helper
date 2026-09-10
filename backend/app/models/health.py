@@ -52,6 +52,13 @@ class HealthReport(BaseModel):
     environment: str
     ready: bool = Field(description="Whether application startup finished successfully.")
     uptime_seconds: float
+    cold_start: bool = Field(
+        default=False,
+        description=(
+            "True while this process has been serving for less than COLD_START_WINDOW_SECONDS. "
+            "Lets the console distinguish 'the instance just woke up' from 'it was always up'."
+        ),
+    )
     started_at: datetime
     checked_at: datetime
     deep: bool = Field(description="Whether dependencies were actually probed for this response.")

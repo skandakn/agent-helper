@@ -31,7 +31,12 @@ from app.services.memory import check_memory, memory_backend
 
 router = APIRouter(tags=["health"])
 
-SERVICE_VERSION = "1.1.0"
+SERVICE_VERSION = "1.2.0"
+
+#: How long after start a process still counts as freshly woken. Render's free
+#: tier spins an idle instance down and cold-starts it on the next request, so
+#: a low uptime on an otherwise healthy backend means "this just woke up".
+COLD_START_WINDOW_SECONDS = 120.0
 
 #: Monotonic clock reading taken at import, used for uptime.
 _started_monotonic = time.monotonic()
@@ -114,6 +119,7 @@ def _build_report(dependencies: list[DependencyHealth], deep: bool) -> HealthRep
         environment=settings.APP_ENV,
         ready=_ready,
         uptime_seconds=uptime_seconds(),
+        cold_start=uptime_seconds() < COLD_START_WINDOW_SECONDS,
         started_at=_started_at,
         checked_at=datetime.now(timezone.utc),
         deep=deep,
