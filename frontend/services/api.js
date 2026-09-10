@@ -1,3 +1,5 @@
+import { probeBackend } from "./health";
+
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const STAGE_KEYS = ["research", "branding", "content", "social_media", "operations", "critic"];
 
@@ -173,14 +175,21 @@ function formatApiError(detail) {
 export const api = {
   baseUrl: BASE,
 
-  /** Lightweight reachability probe for the system-status pill. */
-  async checkHealth() {
-    try {
-      const res = await fetch(`${BASE}/health`, { method: "GET" });
-      return res.ok || res.status < 500;
-    } catch {
-      return false;
-    }
+  /**
+   * Reachability probe for the system-status pill and the Settings panel.
+   *
+   * Always resolves inside `timeoutMs` and reports why it failed, so callers
+   * never have to sit on an indeterminate "unknown" state while a sleeping
+   * instance wakes up.
+   */
+  async getHealth(options = {}) {
+    return probeBackend(BASE, options);
+  },
+
+  /** Boolean form kept for call sites that only need reachable / not. */
+  async checkHealth(options = {}) {
+    const probe = await probeBackend(BASE, options);
+    return probe.ok;
   },
 
   // ── missions (events) ────────────────────────────────────────────

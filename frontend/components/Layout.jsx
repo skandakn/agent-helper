@@ -82,14 +82,27 @@ export default function Layout({ children }) {
 
   useEffect(() => {
     let mounted = true;
+    let inFlight = false;
+    const controller = new AbortController();
+
     async function ping() {
-      const ok = await api.checkHealth();
-      if (mounted) setOnline(ok);
+      // A sleeping backend can take longer to answer than the poll interval.
+      // Without this guard every tick stacked another pending request.
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const probe = await api.getHealth({ signal: controller.signal, timeoutMs: 10000 });
+        if (mounted && !controller.signal.aborted) setOnline(probe.ok);
+      } finally {
+        inFlight = false;
+      }
     }
+
     ping();
     const id = setInterval(ping, 15000);
     return () => {
       mounted = false;
+      controller.abort();
       clearInterval(id);
     };
   }, []);
@@ -167,9 +180,15 @@ export default function Layout({ children }) {
           <div className="topbar-actions">
             <LanguageSwitcher />
             <AccountControls />
-            <span className={`badge ${online === false ? "error" : "ok"}`}>
-              <span className={`status-dot ${online === false ? "error" : "ok"}`} />
-              {online === false ? t("layout.systemHold") : t("layout.systemNominal")}
+            {/* Before the first probe answers this said "SYSTEM NOMINAL" in
+                green, which is a claim we cannot make yet. */}
+            <span className={`badge ${online === null ? "warn" : online ? "ok" : "error"}`}>
+              <span className={`status-dot ${online === null ? "" : online ? "ok" : "error"}`} />
+              {online === null
+                ? t("layout.checking")
+                : online
+                  ? t("layout.systemNominal")
+                  : t("layout.systemHold")}
             </span>
           </div>
         </header>

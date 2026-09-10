@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshCw, Bell, Trash2, ShieldCheck } from "lucide-react";
 import { api } from "../services/api";
+import { probeLabelKey } from "../services/health";
 import { useEventStore } from "../store/event";
 import { getPrefs, setPrefs } from "../lib/prefs";
 import { useTranslation } from "../lib/i18n/context";
@@ -8,28 +9,37 @@ import { useTranslation } from "../lib/i18n/context";
 export default function Settings() {
   const { t } = useTranslation();
   const { recent, clearRecent } = useEventStore();
-  const [checking, setChecking] = useState(false);
-  const [online, setOnline] = useState(null);
-  const [lastChecked, setLastChecked] = useState(null);
+  const [checking, setChecking] = useState(true);
+  const [probe, setProbe] = useState(null);
   const [prefs, setPrefsState] = useState(getPrefs());
   const [confirmClear, setConfirmClear] = useState(false);
   const [notifPermission, setNotifPermission] = useState("default");
+  const abortRef = useRef(null);
+  const mountedRef = useRef(true);
+
+  const check = useCallback(async () => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setChecking(true);
+    const next = await api.getHealth({ signal: controller.signal, timeoutMs: 8000 });
+    if (!mountedRef.current || controller.signal.aborted) return;
+    setProbe(next);
+    setChecking(false);
+  }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     check();
     if (typeof window !== "undefined" && "Notification" in window) {
       setNotifPermission(Notification.permission);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function check() {
-    setChecking(true);
-    const ok = await api.checkHealth();
-    setOnline(ok);
-    setLastChecked(new Date());
-    setChecking(false);
-  }
+    return () => {
+      mountedRef.current = false;
+      abortRef.current?.abort();
+    };
+  }, [check]);
 
   async function toggleNotify(value) {
     if (value && typeof window !== "undefined" && "Notification" in window) {
@@ -62,17 +72,27 @@ export default function Settings() {
           <div className="kv">
             <dt>{t("settings.status")}</dt>
             <dd>
-              <span className={`badge ${online === false ? "error" : online ? "ok" : ""}`}>
-                <span className={`status-dot ${online === false ? "error" : online ? "ok" : ""}`} />
-                {online === null ? t("common.unknown") : online ? t("settings.reachable") : t("settings.unreachable")}
-              </span>
+              <ConnectionBadge checking={checking} probe={probe} t={t} />
             </dd>
           </div>
           <div className="kv">
             <dt>{t("settings.lastChecked")}</dt>
-            <dd>{lastChecked ? lastChecked.toLocaleTimeString() : "—"}</dd>
+            <dd>
+              {probe ? new Date(probe.checkedAt).toLocaleTimeString() : "—"}
+              {probe?.latencyMs != null && (
+                <span className="mono" style={{ color: "var(--text-dim)", marginLeft: 8 }}>
+                  {probe.latencyMs} ms
+                </span>
+              )}
+            </dd>
           </div>
         </dl>
+
+        {!checking && probe && !probe.ok && probe.reason && (
+          <div className="error-banner" style={{ marginTop: 14 }}>
+            <span style={{ fontSize: 15 }}>{probe.reason}</span>
+          </div>
+        )}
         <p style={{ fontSize: 14, color: "var(--text-dim)", marginTop: 14 }}>
           <ShieldCheck size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />
           {t("settings.securityNote")}
@@ -126,6 +146,30 @@ export default function Settings() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * The connection badge has three visual states and no resting "unknown":
+ * while a probe is in flight it says so, and once one has completed it always
+ * shows a definite reachable / not-reachable answer.
+ */
+function ConnectionBadge({ checking, probe, t }) {
+  if (checking) {
+    return (
+      <span className="badge warn">
+        <span className="status-dot" />
+        {t("connection.checking")}
+      </span>
+    );
+  }
+  const cls = probe?.ok ? "ok" : "error";
+  return (
+    <span className={`badge ${cls}`}>
+      <span className={`status-dot ${cls}`} />
+      {t(probeLabelKey(probe))}
+      {probe?.httpStatus ? ` (${probe.httpStatus})` : ""}
+    </span>
   );
 }
 

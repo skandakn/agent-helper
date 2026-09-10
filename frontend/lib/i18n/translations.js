@@ -25,6 +25,15 @@ const en = {
     checkNow: "Check now",
     language: "Language",
   },
+  connection: {
+    checking: "CHECKING…",
+    reachable: "REACHABLE",
+    unreachable: "UNREACHABLE",
+    timedOut: "TIMED OUT",
+    deviceOffline: "DEVICE OFFLINE",
+    errorResponse: "ERROR RESPONSE",
+    unchecked: "NOT CHECKED YET",
+  },
   layout: {
     brandTitle: "LAUNCH CONTROL",
     brandSub: "Hackathon Ops",
