@@ -2,9 +2,49 @@
 
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic import Field, SecretStr, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+#: libpq query parameters that asyncpg rejects with
+#: ``connect() got an unexpected keyword argument``. Neon includes
+#: ``channel_binding`` in every connection string it generates.
+_LIBPQ_ONLY_PARAMS = {"channel_binding", "gssencmode", "sslrootcert", "sslcert", "sslkey"}
+
+
+def normalize_postgres_url(url: str) -> str:
+    """Rewrite a provider-issued Postgres URL into one asyncpg can open.
+
+    Render, Neon, Supabase and Heroku all issue ``postgres://`` or
+    ``postgresql://`` URLs, often with ``?sslmode=require``. Passed straight to
+    ``create_async_engine`` those either fail at import (SQLAlchemy looks for a
+    sync driver) or fail on connect (asyncpg has no ``sslmode`` argument), and
+    both kill the process before uvicorn binds its port.
+    """
+
+    url = url.strip()
+    parts = urlsplit(url)
+    scheme = parts.scheme.lower()
+    if scheme in {"postgres", "postgresql"} or scheme.startswith("postgresql+"):
+        scheme = "postgresql+asyncpg"
+    else:
+        return url
+
+    query: list[tuple[str, str]] = []
+    has_ssl = False
+    for key, val in parse_qsl(parts.query, keep_blank_values=True):
+        if key in _LIBPQ_ONLY_PARAMS:
+            continue
+        if key == "sslmode":
+            key = "ssl"
+        if key == "ssl":
+            if has_ssl:
+                continue
+            has_ssl = True
+        query.append((key, val))
+
+    return urlunsplit((scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 
 class Settings(BaseSettings):
@@ -75,6 +115,13 @@ class Settings(BaseSettings):
             "https://agent-helper-sable.vercel.app",
         ]
     )
+
+    @field_validator("POSTGRES_URL", mode="after")
+    @classmethod
+    def normalize_postgres_url(cls, value: str) -> str:
+        """Accept the connection strings hosting providers actually hand out."""
+
+        return normalize_postgres_url(value)
 
     @field_validator("BACKEND_CORS_ORIGINS", "CLERK_AUTHORIZED_PARTIES", mode="before")
     @classmethod

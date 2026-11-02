@@ -38,24 +38,55 @@ app.include_router(users.router)
 app.include_router(ws_router)
 
 
-@app.on_event("startup")
-async def startup() -> None:
-    """Initialize database and memory services with Docker-friendly retries."""
+_init_task: asyncio.Task | None = None
 
-    last_exc: Exception | None = None
-    for attempt in range(1, 16):
+
+async def _initialize_dependencies() -> None:
+    """Bring up the database and memory services, retrying until they answer.
+
+    This runs in the background rather than inside the startup hook. uvicorn
+    only binds its port after every startup hook returns, so the old blocking
+    loop (15 retries, then raise) meant a slow or misconfigured database kept
+    the port closed for ~30s and then killed the process. On Render that
+    surfaces as "no open ports detected" and a restart loop, and the frontend
+    sits on its "waking the backend up" banner indefinitely. Now the port is
+    open immediately, liveness answers 200, and ``/health?deep=true`` reports
+    the actual database error until it is fixed.
+    """
+
+    attempt = 0
+    while True:
+        attempt += 1
         try:
             await init_db()
             logger.info("Database initialized")
             break
         except Exception as exc:
-            last_exc = exc
-            logger.warning("Database not ready (attempt %s/15): %s", attempt, exc)
-            await asyncio.sleep(2)
-    else:
-        # Record the failure before raising so /health can report "starting"
-        # with a reason rather than the process dying silently behind a proxy.
-        mark_ready(f"Database initialization failed: {last_exc}")
-        raise RuntimeError(f"Database initialization failed: {last_exc}") from last_exc
-    await init_collections()
+            delay = min(2 * attempt, 30)
+            mark_ready(f"Database initialization failed (attempt {attempt}): {exc}")
+            logger.warning(
+                "Database not ready (attempt %s), retrying in %ss: %s", attempt, delay, exc
+            )
+            await asyncio.sleep(delay)
+
+    try:
+        await init_collections()
+    except Exception as exc:  # memory has an in-process fallback; never fatal
+        logger.warning("Memory bootstrap failed, using fallback: %s", exc)
     mark_ready()
+
+
+@app.on_event("startup")
+async def startup() -> None:
+    """Start dependency initialization without blocking the port bind."""
+
+    global _init_task
+    _init_task = asyncio.create_task(_initialize_dependencies())
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    """Stop a still-running initialization loop."""
+
+    if _init_task is not None and not _init_task.done():
+        _init_task.cancel()

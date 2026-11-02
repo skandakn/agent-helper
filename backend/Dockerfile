@@ -18,4 +18,6 @@ COPY alembic.ini ./alembic.ini
 COPY alembic ./alembic
 
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Render injects PORT (10000 by default) and routes traffic there; fall back to
+# 8000 for docker compose and local runs.
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
