@@ -37,7 +37,9 @@ def _migration_config():
     backend_dir = Path(__file__).resolve().parents[2]
     config = Config(str(backend_dir / "alembic.ini"))
     config.set_main_option("script_location", str(backend_dir / "alembic"))
-    config.set_main_option("sqlalchemy.url", settings.POSTGRES_URL)
+    # Alembic's config is a ConfigParser, which treats "%" as interpolation;
+    # URL-encoded passwords (p%40ss) would otherwise raise ValueError here.
+    config.set_main_option("sqlalchemy.url", settings.POSTGRES_URL.replace("%", "%%"))
     return config
 
 

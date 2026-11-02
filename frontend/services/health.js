@@ -21,7 +21,40 @@ export const PROBE_OUTCOME = {
   timeout: "timeout",
   network: "network",
   offline: "offline",
+  /** The API URL can never work from this page; retrying will not help. */
+  misconfigured: "misconfigured",
 };
+
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]"]);
+
+/**
+ * Catch API URLs that cannot work from the page that is loading them.
+ *
+ * In both cases the browser fails the request with the same opaque TypeError
+ * a sleeping Render instance produces, so without this check the console
+ * showed "Waking the backend up..." for two minutes when the real problem was
+ * that NEXT_PUBLIC_API_URL was never set on Vercel (it defaults to
+ * http://localhost:8000).
+ *
+ * @returns {string|null} why the URL is unusable, or null if it looks fine
+ */
+export function describeUnusableApiUrl(baseUrl) {
+  if (typeof window === "undefined" || !window.location) return null;
+  let api;
+  try {
+    api = new URL(baseUrl);
+  } catch {
+    return `NEXT_PUBLIC_API_URL ("${baseUrl}") is not a valid URL.`;
+  }
+  const page = window.location;
+  if (LOOPBACK_HOSTS.has(api.hostname) && !LOOPBACK_HOSTS.has(page.hostname)) {
+    return `NEXT_PUBLIC_API_URL points at ${api.origin}, which only exists on a developer machine. Set it to the deployed API URL in the frontend's environment variables and redeploy.`;
+  }
+  if (page.protocol === "https:" && api.protocol === "http:") {
+    return `This page is served over HTTPS but NEXT_PUBLIC_API_URL uses http:// (${api.origin}); the browser blocks that as mixed content. Use https://.`;
+  }
+  return null;
+}
 
 function now() {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {
@@ -67,6 +100,11 @@ export async function probeBackend(
       outcome: PROBE_OUTCOME.offline,
       reason: "This device reports no network connection.",
     });
+  }
+
+  const unusable = describeUnusableApiUrl(baseUrl);
+  if (unusable) {
+    return result({ outcome: PROBE_OUTCOME.misconfigured, latencyMs: 0, reason: unusable });
   }
 
   const controller = new AbortController();

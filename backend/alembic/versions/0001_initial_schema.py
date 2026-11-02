@@ -11,7 +11,11 @@ down_revision = None
 branch_labels = None
 depends_on = None
 
-event_status = sa.Enum(
+# postgresql.ENUM with create_type=False: the types are created explicitly
+# (checkfirst) in upgrade(). With plain sa.Enum, op.create_table would issue a
+# second CREATE TYPE and fail with 'type "event_status" already exists', which
+# made this migration impossible to apply to an empty database.
+event_status = postgresql.ENUM(
     "draft",
     "planning",
     "running",
@@ -20,9 +24,12 @@ event_status = sa.Enum(
     "launched",
     "failed",
     name="event_status",
+    create_type=False,
 )
-task_status = sa.Enum("todo", "in_progress", "done", name="task_status")
-agent_run_status = sa.Enum("pending", "running", "completed", "failed", name="agent_run_status")
+task_status = postgresql.ENUM("todo", "in_progress", "done", name="task_status", create_type=False)
+agent_run_status = postgresql.ENUM(
+    "pending", "running", "completed", "failed", name="agent_run_status", create_type=False
+)
 
 
 def upgrade() -> None:
