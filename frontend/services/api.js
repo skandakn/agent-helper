@@ -1,7 +1,26 @@
 import { probeBackend } from "./health";
 import { ApiError, ERROR_KIND, formatDetail, kindForStatus } from "./errors";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+function resolveApiBase() {
+  const envUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (envUrl) {
+    const cleaned = envUrl.trim().replace(/\/+$/, "");
+    if (cleaned.includes("agent-helper-hd05.onrender.com")) {
+      return cleaned.replace("agent-helper-hd05.onrender.com", "agent-helper-ymlu.onrender.com");
+    }
+    return cleaned;
+  }
+  if (
+    typeof window !== "undefined" &&
+    window.location &&
+    !["localhost", "127.0.0.1", "0.0.0.0", "[::1]"].includes(window.location.hostname)
+  ) {
+    return "https://agent-helper-ymlu.onrender.com";
+  }
+  return "http://localhost:8000";
+}
+
+const BASE = resolveApiBase();
 const STAGE_KEYS = ["research", "branding", "content", "social_media", "operations", "critic"];
 
 let authTokenProvider = null;

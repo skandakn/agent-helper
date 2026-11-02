@@ -1,4 +1,23 @@
-const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
+function resolveWsBase() {
+  const envWs = process.env.NEXT_PUBLIC_WS_URL;
+  if (envWs) {
+    const cleaned = envWs.trim().replace(/\/+$/, "");
+    if (cleaned.includes("agent-helper-hd05.onrender.com")) {
+      return cleaned.replace("agent-helper-hd05.onrender.com", "agent-helper-ymlu.onrender.com");
+    }
+    return cleaned;
+  }
+  if (
+    typeof window !== "undefined" &&
+    window.location &&
+    !["localhost", "127.0.0.1", "0.0.0.0", "[::1]"].includes(window.location.hostname)
+  ) {
+    return "wss://agent-helper-ymlu.onrender.com";
+  }
+  return "ws://localhost:8000";
+}
+
+const WS_BASE = resolveWsBase();
 
 /** Link states surfaced to the UI. */
 export const LINK = {
