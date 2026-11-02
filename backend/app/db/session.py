@@ -34,9 +34,15 @@ def _migration_config():
 
     from alembic.config import Config
 
-    backend_dir = Path(__file__).resolve().parents[2]
-    config = Config(str(backend_dir / "alembic.ini"))
-    config.set_main_option("script_location", str(backend_dir / "alembic"))
+    candidates = [
+        Path(__file__).resolve().parents[1] / "alembic.ini",
+        Path(__file__).resolve().parents[2] / "alembic.ini",
+        Path.cwd() / "alembic.ini",
+        Path.cwd() / "backend" / "alembic.ini",
+    ]
+    ini_file = next((p for p in candidates if p.is_file()), candidates[0])
+    config = Config(str(ini_file))
+    config.set_main_option("script_location", str(ini_file.parent / "alembic"))
     # Alembic's config is a ConfigParser, which treats "%" as interpolation;
     # URL-encoded passwords (p%40ss) would otherwise raise ValueError here.
     config.set_main_option("sqlalchemy.url", settings.POSTGRES_URL.replace("%", "%%"))
