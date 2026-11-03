@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import DBAPIError
 
 from app.api import agents, analytics, auth, events, health, prompts, users
 from app.api.health import mark_ready
@@ -27,6 +29,32 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+async def _database_unavailable(request: Request, exc: Exception) -> JSONResponse:
+    """Answer a database outage with a 503 the browser can actually read.
+
+    Unhandled exceptions are turned into a 500 by Starlette's outermost
+    ServerErrorMiddleware, which sits outside CORSMiddleware, so that 500
+    carries no Access-Control-Allow-Origin header. The browser then blocks it
+    and the console reports "Couldn't reach the backend" when the backend is
+    up and only its database is missing. Handlers registered here run inside
+    CORSMiddleware, so this response keeps its CORS headers.
+    """
+
+    logger.warning("Database unavailable for %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "The API is running but cannot reach its database. "
+            "Check POSTGRES_URL on the backend; /health?deep=true has the details."
+        },
+    )
+
+
+# asyncpg surfaces DNS / refused-connection failures as raw OSError
+# (socket.gaierror, ConnectionRefusedError) rather than a SQLAlchemy error.
+app.add_exception_handler(DBAPIError, _database_unavailable)
+app.add_exception_handler(OSError, _database_unavailable)
 
 app.include_router(health.router)
 app.include_router(events.router)
