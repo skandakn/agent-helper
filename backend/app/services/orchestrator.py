@@ -198,8 +198,20 @@ async def run_pipeline(
                         feedback_by_agent.get(target, []),
                     )
 
+                regenerated_outputs = {
+                    "content": content,
+                    "social_media": social_media,
+                    "operations": operations,
+                }
+                regenerated_outputs = {
+                    name: regenerated_outputs[name].model_dump(mode="json")
+                    for name in targets
+                    if name in regenerated_outputs
+                }
                 recheck = await run_critic_agent(research, branding, content, social_media, operations)
-                improved = recheck.weighted_overall >= weighted_before
+                # Strictly better only: an equal score is not an improvement,
+                # and reporting it as one hid regenerations that changed nothing.
+                improved = recheck.weighted_overall > weighted_before
 
                 if not improved:
                     # Keep the better package rather than shipping a worse one
@@ -238,6 +250,10 @@ async def run_pipeline(
                         "targets": targets,
                         "triggered_by": record.triggered_by,
                         "feedback": feedback_by_agent,
+                        # The regenerated attempt itself, kept even when it is
+                        # reverted, so run history holds both attempts.
+                        "regenerated": regenerated_outputs,
+                        "kept": "regenerated" if improved else "original",
                     },
                     critique.model_dump(mode="json"),
                 )
