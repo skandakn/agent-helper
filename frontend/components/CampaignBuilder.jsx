@@ -199,7 +199,7 @@ function BudgetChart({ budget, t, lang }) {
                 className="manifest-fill"
                 style={{
                   width: `${(v / max) * 100}%`,
-                  background: `linear-gradient(90deg, ${CHART_COLORS[i % CHART_COLORS.length]}, ${CHART_COLORS[(i + 1) % CHART_COLORS.length]})`,
+                  background: CHART_COLORS[i % CHART_COLORS.length],
                 }}
               />
             </div>

@@ -23,13 +23,7 @@ export function BarChart({ data, height = 220 }) {
           const color = d.color || CHART_COLORS[i % CHART_COLORS.length];
           return (
             <g key={d.label}>
-              <defs>
-                <linearGradient id={`bar-grad-${i}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={color} stopOpacity="1" />
-                  <stop offset="100%" stopColor={color} stopOpacity="0.55" />
-                </linearGradient>
-              </defs>
-              <rect x={x} y={y} width={barW} height={barH} rx={6} fill={`url(#bar-grad-${i})`} />
+              <rect x={x} y={y} width={barW} height={barH} rx={4} fill={color} />
               <text x={x + barW / 2} y={y - 8} textAnchor="middle" fill="var(--text)" fontSize="14" fontWeight="600" fontFamily="var(--font-mono)">
                 {d.value}%
               </text>

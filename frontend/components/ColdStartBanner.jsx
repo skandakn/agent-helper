@@ -74,7 +74,7 @@ export default function ColdStartBanner({ warmup }) {
             style={{
               width: `${progress}%`,
               height: "100%",
-              background: "linear-gradient(90deg, var(--info), var(--purple))",
+              background: "var(--accent)",
               transition: "width 0.5s linear",
             }}
           />
