@@ -158,14 +158,29 @@ function reportError(err) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Correlation ID for one logical request. It is sent as X-Request-ID, echoed
+ * by the backend and written into its log line, and shown on the error
+ * notification, so a reported failure can be found in the server logs.
+ * Retries reuse it, so every attempt groups under one ID.
+ */
+function newRequestId() {
+  const random =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID().replace(/-/g, "")
+      : Math.random().toString(16).slice(2) + Date.now().toString(16);
+  return random.slice(0, 12);
+}
+
 async function request(path, options = {}) {
   const method = (options.method || "GET").toUpperCase();
+  const requestId = newRequestId();
   const retries = RETRYABLE_METHODS.has(method) && options.retry !== false ? MAX_ATTEMPTS : 1;
 
   let lastError = null;
   for (let attempt = 1; attempt <= retries; attempt += 1) {
     try {
-      return await attemptRequest(path, options, method);
+      return await attemptRequest(path, options, method, requestId);
     } catch (err) {
       lastError = err;
       const canRetry = attempt < retries && err.retryable && err.kind !== ERROR_KIND.OFFLINE;
@@ -180,9 +195,9 @@ async function request(path, options = {}) {
   throw options.silent ? lastError : reportError(lastError);
 }
 
-async function attemptRequest(path, options, method) {
+async function attemptRequest(path, options, method, requestId) {
   if (typeof navigator !== "undefined" && navigator.onLine === false) {
-    throw new ApiError(ERROR_KIND.OFFLINE, "This device is offline.", { path });
+    throw new ApiError(ERROR_KIND.OFFLINE, "This device is offline.", { path, correlationId: requestId });
   }
 
   const controller = new AbortController();
@@ -198,24 +213,27 @@ async function attemptRequest(path, options, method) {
   let res;
   try {
     const token = authTokenProvider ? await authTokenProvider() : null;
-    res = await fetchWithOptionalToken(path, options, token, controller.signal);
+    res = await fetchWithOptionalToken(path, options, token, controller.signal, requestId);
   } catch (err) {
     const timedOut = controller.signal.aborted && !external?.aborted;
     if (timedOut) {
       throw new ApiError(
         ERROR_KIND.TIMEOUT,
         `${BASE}${path} did not answer within ${Math.round(timeoutMs / 1000)}s.`,
-        { path, cause: err }
+        { path, cause: err, correlationId: requestId }
       );
     }
     throw new ApiError(ERROR_KIND.NETWORK, `Couldn't reach the backend at ${BASE}.`, {
       path,
       cause: err,
+      correlationId: requestId,
     });
   } finally {
     clearTimeout(timer);
     if (external) external.removeEventListener("abort", forwardAbort);
   }
+
+  const correlationId = res.headers.get("X-Request-ID") || requestId;
 
   if (!res.ok) {
     let detail = res.statusText;
@@ -229,18 +247,28 @@ async function attemptRequest(path, options, method) {
       status: res.status,
       detail,
       path,
+      correlationId,
     });
   }
 
   if (res.status === 204) return null;
+  const text = await res.text();
+  if (!text) return null;
   try {
-    return await res.json();
-  } catch {
-    return null;
+    return JSON.parse(text);
+  } catch (err) {
+    // A 2xx whose body is not JSON used to resolve to null, so the page
+    // rendered as if there were simply no data and nobody was told.
+    throw new ApiError(ERROR_KIND.SERVER, `The backend sent a response from ${path} that isn't valid JSON.`, {
+      status: res.status,
+      path,
+      cause: err,
+      correlationId,
+    });
   }
 }
 
-function fetchWithOptionalToken(path, options, token, signal) {
+function fetchWithOptionalToken(path, options, token, signal, requestId) {
   const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
   const { timeoutMs, retry, silent, signal: _ignored, ...fetchOptions } = options;
   return fetch(`${BASE}${path}`, {
@@ -249,6 +277,7 @@ function fetchWithOptionalToken(path, options, token, signal) {
     headers: {
       "Content-Type": "application/json",
       "X-Launch-Client-Id": getClientId(),
+      "X-Request-ID": requestId,
       ...authHeaders,
       ...(options.headers || {}),
     },
@@ -287,8 +316,13 @@ export const api = {
     return request("/events/launch", { method: "POST", body: JSON.stringify(normalizeLaunchPayload(payload)) });
   },
 
-  async getEvent(eventId) {
-    return normalizeEventRecord(await request(`/events/${eventId}`));
+  /**
+   * `silent` is for supplementary lookups (header details) whose failure the
+   * page already reports through its main call, so one missing event does
+   * not raise two notifications.
+   */
+  async getEvent(eventId, { silent = false } = {}) {
+    return normalizeEventRecord(await request(`/events/${eventId}`, { silent }));
   },
 
   async deleteEvent(eventId) {

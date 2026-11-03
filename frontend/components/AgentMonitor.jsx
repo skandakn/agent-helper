@@ -60,7 +60,7 @@ export default function AgentMonitor() {
     setLinkMeta({ attempt: 0 });
     seenSeqRef.current = new Set();
 
-    api.getEvent(event_id).then(setEventRecord).catch(() => {
+    api.getEvent(event_id, { silent: true }).then(setEventRecord).catch(() => {
       /* local-only missions may not have a backend record yet */
     });
 

@@ -63,7 +63,7 @@ export default function CampaignBuilder() {
     if (!fallbackId) return;
     setEventRecord(null);
     api
-      .getEvent(fallbackId)
+      .getEvent(fallbackId, { silent: true })
       .then(setEventRecord)
       .catch(() => {
         /* the schedule line is optional; the package view does not depend on it */

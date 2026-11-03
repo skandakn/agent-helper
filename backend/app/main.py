@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
+import time
+import uuid
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DBAPIError
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api import agents, analytics, auth, events, health, prompts, users
 from app.api.health import mark_ready
@@ -22,12 +26,64 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title=settings.APP_NAME, version="1.0.0")
 
+REQUEST_ID_HEADER = "X-Request-ID"
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+request_logger = logging.getLogger("app.request")
+
+
+async def request_id_middleware(request: Request, call_next):
+    """Give every request a correlation ID and log it with the outcome.
+
+    The browser sends X-Request-ID (one per logical request, reused across
+    retries); anything else gets a fresh one. It is echoed on the response and
+    written into this log line, so the "Ref" on an error notification finds
+    the exact request in the server logs.
+
+    Registered before CORSMiddleware, so it runs inside it: an unexpected
+    exception becomes a 500 here that still gets CORS headers, instead of
+    Starlette's outer 500 that the browser reports as "can't reach backend".
+    """
+
+    supplied = request.headers.get(REQUEST_ID_HEADER, "")
+    request_id = supplied if _REQUEST_ID_RE.match(supplied) else uuid.uuid4().hex[:12]
+    request.state.request_id = request_id
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        request_logger.exception(
+            "request_id=%s %s %s -> 500 unhandled", request_id, request.method, request.url.path
+        )
+        response = JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error.", "request_id": request_id},
+        )
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    response.headers[REQUEST_ID_HEADER] = request_id
+    level = logging.WARNING if response.status_code >= 500 else logging.INFO
+    if request.url.path != "/health" or response.status_code >= 500:
+        request_logger.log(
+            level,
+            "request_id=%s %s %s -> %s (%.0f ms)",
+            request_id,
+            request.method,
+            request.url.path,
+            response.status_code,
+            elapsed_ms,
+        )
+    return response
+
+
+# Order matters: middleware added later wraps earlier ones, so CORS is outside
+# the request-ID layer and decorates every response it produces.
+app.add_middleware(BaseHTTPMiddleware, dispatch=request_id_middleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=[REQUEST_ID_HEADER],
 )
 
 async def _database_unavailable(request: Request, exc: Exception) -> JSONResponse:
@@ -41,12 +97,16 @@ async def _database_unavailable(request: Request, exc: Exception) -> JSONRespons
     CORSMiddleware, so this response keeps its CORS headers.
     """
 
-    logger.warning("Database unavailable for %s %s: %s", request.method, request.url.path, exc)
+    request_id = getattr(request.state, "request_id", None)
+    logger.warning(
+        "request_id=%s database unavailable for %s %s: %s", request_id, request.method, request.url.path, exc
+    )
     return JSONResponse(
         status_code=503,
         content={
             "detail": "The API is running but cannot reach its database. "
-            "Check POSTGRES_URL on the backend; /health?deep=true has the details."
+            "Check POSTGRES_URL on the backend; /health?deep=true has the details.",
+            "request_id": request_id,
         },
     )
 
