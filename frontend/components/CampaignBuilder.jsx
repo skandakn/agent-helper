@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import EventSchedule from "./EventSchedule";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { Download, Copy, Check, FileWarning } from "lucide-react";
@@ -27,6 +28,7 @@ export default function CampaignBuilder() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [tab, setTab] = useState("branding");
+  const [eventRecord, setEventRecord] = useState(null);
 
   useEffect(() => {
     if (!fallbackId) return;
@@ -57,6 +59,17 @@ export default function CampaignBuilder() {
       .finally(() => setLoading(false));
   }, [fallbackId]);
 
+  useEffect(() => {
+    if (!fallbackId) return;
+    setEventRecord(null);
+    api
+      .getEvent(fallbackId)
+      .then(setEventRecord)
+      .catch(() => {
+        /* the schedule line is optional; the package view does not depend on it */
+      });
+  }, [fallbackId]);
+
   if (!fallbackId) {
     return (
       <div className="empty-state panel-colorful" style={{ maxWidth: 560 }}>
@@ -83,6 +96,9 @@ export default function CampaignBuilder() {
           <h1 style={{ fontSize: 30, marginTop: 8 }}>
             {localizeText(mission?.theme || t("campaignBuilder.launchPackage"), lang)}
           </h1>
+          <div style={{ marginTop: 8 }}>
+            <EventSchedule date={eventRecord?.date || mission?.date || null} />
+          </div>
         </div>
         {pkg && (
           <button className="btn btn-primary btn-sm" onClick={() => downloadJson(pkg, `mission-${fallbackId}-package.json`)}>
