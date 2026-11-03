@@ -34,6 +34,7 @@ from app.services.agents import (
     repair_social_media,
     runtime_note,
 )
+from app.services import prompts
 from app.services.memory import remember
 
 logger = logging.getLogger(__name__)
@@ -85,7 +86,9 @@ async def run_pipeline(
         error: str | None = None,
     ) -> None:
         if persist_callback:
-            await persist_callback(agent_name, input_data, output_data, status, error)
+            await persist_callback(
+                agent_name, _with_prompt_version(agent_name, input_data), output_data, status, error
+            )
 
     await emit("orchestrator", 2, "running", "Parsed brief and created workflow plan.")
 
@@ -312,6 +315,28 @@ async def run_pipeline(
         await persist("orchestrator", event_brief.model_dump(mode="json"), {}, "failed", str(exc))
         await emit("failed", 100, "failed", f"Workflow failed: {exc}")
         raise
+
+
+def _with_prompt_version(agent_name: str, input_data: dict[str, Any]) -> dict[str, Any]:
+    """Tag a run's input with the prompt template version that produced it.
+
+    Templates are edited at runtime, so without this an agent_runs row could
+    not be traced back to the exact prompt it was generated from. The
+    critic_refinement pass re-runs agents, so it records every target's
+    version. Rows for steps with no template (orchestrator) are left as-is.
+    """
+
+    names = input_data.get("targets") if agent_name == "critic_refinement" else [agent_name]
+    versions: dict[str, Any] = {}
+    for name in names or []:
+        try:
+            template = prompts.load(name)
+        except prompts.PromptError:
+            continue
+        versions[name] = {"version": template.version, "checksum": template.checksum}
+    if not versions:
+        return input_data
+    return {**input_data, "prompt_templates": versions}
 
 
 def _feedback_by_agent(failing: list[CriterionScore]) -> dict[str, list[str]]:

@@ -259,6 +259,34 @@ def serialise(template: PromptTemplate, system: str, user: str, description: str
     return "\n".join(lines)
 
 
+def validate_sections(system: str, user: str, declared: list[str]) -> None:
+    """Reject a template that would only fail once an agent runs with it.
+
+    Saving used to accept anything. An undeclared `{{ variable }}` then made
+    strict rendering raise mid-run, and the agent silently fell back to a
+    one-line summary prompt; a stray or unclosed brace reached the model as
+    literal text. Both are caught here, at save time, with the exact problem.
+    """
+
+    problems: list[str] = []
+    for section_name, text in (("system", system), ("user", user)):
+        used = PLACEHOLDER_RE.findall(text)
+        undeclared = sorted(set(used) - set(declared))
+        if undeclared:
+            problems.append(
+                f"{section_name}: unknown variable(s) {', '.join('{{ ' + v + ' }}' for v in undeclared)}; "
+                f"this agent provides {', '.join(declared) or 'no variables'}"
+            )
+        leftover = PLACEHOLDER_RE.sub("", text)
+        if "{{" in leftover or "}}" in leftover:
+            problems.append(
+                f"{section_name}: unbalanced or malformed '{{{{ }}}}' placeholder; "
+                "write variables as {{ name }}"
+            )
+    if problems:
+        raise PromptError("Template not saved. " + " | ".join(problems))
+
+
 def save(name: str, system: str, user: str, description: str | None = None) -> PromptTemplate:
     """Write a new version of a template, archiving the current one first.
 
@@ -267,6 +295,7 @@ def save(name: str, system: str, user: str, description: str | None = None) -> P
     """
 
     current = load(name)
+    validate_sections(system, user, current.variables)
     directory = templates_dir()
     archive = directory / VERSIONS_DIRNAME / name
     archive.mkdir(parents=True, exist_ok=True)
