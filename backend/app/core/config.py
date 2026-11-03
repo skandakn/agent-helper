@@ -1,11 +1,12 @@
 """Environment-driven application configuration."""
 
+import json
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic import Field, SecretStr, computed_field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 #: libpq query parameters that asyncpg rejects with
 #: ``connect() got an unexpected keyword argument``. Neon includes
@@ -91,7 +92,10 @@ class Settings(BaseSettings):
     CLERK_ISSUER_URL: str | None = None
     CLERK_JWKS_URL: str | None = None
     CLERK_AUDIENCE: str | None = None
-    CLERK_AUTHORIZED_PARTIES: list[str] = Field(default_factory=list)
+    # NoDecode: let parse_env_list handle the raw string. Without it
+    # pydantic-settings JSON-decodes list fields first, so a plain
+    # "https://a,https://b" (or a single URL) crashes the app at import.
+    CLERK_AUTHORIZED_PARTIES: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
     #: Where versioned agent prompt templates are read from and written to.
     #: Defaults to app/prompts. Point it at a writable volume in deployments
@@ -106,7 +110,7 @@ class Settings(BaseSettings):
     EMBEDDING_DIM: int = 384
     USE_SENTENCE_TRANSFORMERS: bool = False
 
-    BACKEND_CORS_ORIGINS: list[str] = Field(
+    BACKEND_CORS_ORIGINS: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: [
             "http://localhost:3000",
             "http://127.0.0.1:3000",
@@ -128,9 +132,14 @@ class Settings(BaseSettings):
     def parse_env_list(cls, value: object) -> object:
         """Allow JSON arrays or comma-separated strings in deployment env vars."""
 
-        if isinstance(value, str) and value.strip() and not value.strip().startswith("["):
-            return [item.strip() for item in value.split(",") if item.strip()]
-        return value
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        if not text:
+            return []
+        if text.startswith("["):
+            return json.loads(text)
+        return [item.strip() for item in text.split(",") if item.strip()]
 
     @computed_field  # type: ignore[misc]
     @property
