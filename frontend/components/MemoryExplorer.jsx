@@ -120,7 +120,7 @@ function RelevanceBar({ score }) {
   return (
     <div className="row" style={{ gap: 10 }}>
       <div style={{ width: 80, height: 6, background: "var(--border)", borderRadius: 99, overflow: "hidden" }}>
-        <div style={{ width: `${pct}%`, height: "100%", background: "linear-gradient(90deg, var(--info), var(--purple))" }} />
+        <div style={{ width: `${pct}%`, height: "100%", background: "var(--accent)" }} />
       </div>
       <span className="mono" style={{ fontSize: 13, color: "var(--text-dim)" }}>
         {pct}%

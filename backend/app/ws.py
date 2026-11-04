@@ -85,7 +85,11 @@ class ProgressBuffer:
         buffer = self._runs.get(event_id)
         if not buffer:
             return []
-        return [payload for stored_seq, payload in buffer if stored_seq > seq]
+        # Stamp the stored seq back on: the buffered payload is the model dump
+        # from before broadcast() numbered it, so it still carries the model's
+        # default seq of 0. Replayed frames without their real seq made a
+        # client that reconnected twice resume from the wrong position.
+        return [{**payload, "seq": stored_seq} for stored_seq, payload in buffer if stored_seq > seq]
 
     def can_replay_from(self, event_id: str, seq: int) -> bool:
         """Whether every frame after ``seq`` is still buffered."""

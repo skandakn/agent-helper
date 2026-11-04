@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import EventSchedule from "./EventSchedule";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, CheckCircle2, FileWarning, Rocket, RadioTower } from "lucide-react";
@@ -59,9 +60,17 @@ export default function AgentMonitor() {
     setLinkMeta({ attempt: 0 });
     seenSeqRef.current = new Set();
 
-    api.getEvent(event_id).then(setEventRecord).catch(() => {
+    api.getEvent(event_id, { silent: true }).then(setEventRecord).catch(() => {
       /* local-only missions may not have a backend record yet */
     });
+
+    // A finished run will never emit again. Closing the stream stops the
+    // reconnect loop (which otherwise retried forever after a backend restart
+    // and told the user progress "will be replayed") and the polling.
+    function stopStream() {
+      handleRef.current?.close();
+      clearInterval(pollRef.current);
+    }
 
     function applyMessage(msg) {
       if (!msg || !msg.stage) return;
@@ -77,6 +86,7 @@ export default function AgentMonitor() {
         setProgress((p) => ({ ...p, ...doneProgress }));
         setFinalPackage(msg.data);
         updateRecentMission(event_id, { status: "ready", progress: doneProgress });
+        stopStream();
         if (getPrefs().notifyOnComplete && typeof window !== "undefined" && "Notification" in window) {
           if (Notification.permission === "granted") {
             new Notification(t("agentMonitor.packageCompiled"), {
@@ -98,7 +108,7 @@ export default function AgentMonitor() {
       if (msg.stage === "failed") {
         setFailure(msg.message || null);
         updateRecentMission(event_id, { status: "failed" });
-        clearInterval(pollRef.current);
+        stopStream();
       }
     }
 
@@ -147,11 +157,11 @@ export default function AgentMonitor() {
             setProgress((p) => ({ ...p, ...doneProgress }));
             updateRecentMission(event_id, { status: status.status, progress: doneProgress });
           }
-          clearInterval(pollRef.current);
+          stopStream();
         } else if (status?.status === "failed") {
           setFailure(status.last_error || null);
           updateRecentMission(event_id, { status: "failed" });
-          clearInterval(pollRef.current);
+          stopStream();
         }
       } catch {
         /* status endpoint may not be ready yet */
@@ -184,6 +194,9 @@ export default function AgentMonitor() {
         <div>
           <div className="eyebrow">{t("dashboard.mission")} #{event_id}</div>
           <h1 style={{ fontSize: 30, marginTop: 8 }}>{mission?.theme || t("agentMonitor.pipeline")}</h1>
+          <div style={{ marginTop: 8 }}>
+            <EventSchedule date={eventRecord?.date || mission?.date || null} />
+          </div>
         </div>
         <LinkStatus state={link} meta={linkMeta} t={t} />
       </div>

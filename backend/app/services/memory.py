@@ -313,6 +313,12 @@ async def bootstrap_collections(force: bool = False) -> dict[str, Any]:
                 api_key=settings.qdrant_key,
                 timeout=5,
             )
+            # Prove the server is reachable before probing collections. The
+            # per-collection loop below catches its own errors, so without
+            # this an unreachable Qdrant was recorded as "available" with every
+            # collection unusable ("mixed"), and _maybe_reconnect, which only
+            # runs while Qdrant is unavailable, never retried it.
+            await client.get_collections()
             statuses: dict[str, dict[str, Any]] = {}
             unusable: set[str] = set()
             for name, config in COLLECTIONS.items():

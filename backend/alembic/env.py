@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from logging.config import fileConfig
 
 from alembic import context
@@ -20,7 +21,13 @@ if config.config_file_name is not None:
     # disable_existing_loggers=False: migrations run inside the API process on
     # startup, and the default would silence every app logger (including the
     # one that reports why the database is not ready) for the process lifetime.
+    # alembic.ini sets the root logger to WARN, which would otherwise silence
+    # every INFO line the API writes afterwards (request IDs included). Keep
+    # the level the app configured.
+    _root = logging.getLogger()
+    _root_level = _root.level
     fileConfig(config.config_file_name, disable_existing_loggers=False)
+    _root.setLevel(_root_level)
 
 target_metadata = Base.metadata
 

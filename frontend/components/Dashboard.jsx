@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import EventSchedule from "./EventSchedule";
+import { isEventOver } from "../lib/eventSchedule";
 import Link from "next/link";
-import { Plus, AlertTriangle, ArrowUpRight, Trash2 } from "lucide-react";
+import { Plus, ArrowUpRight, Trash2 } from "lucide-react";
 import { api } from "../services/api";
 import { useEventStore } from "../store/event";
 import { STAGES, formatDate } from "../lib/stages";
@@ -32,7 +34,6 @@ export default function Dashboard() {
   }, [userKey]);
 
   const missions = remote && remote.length ? remote : recent;
-  const showingLocalOnly = !remote || remote.length === 0;
 
   const activeCount = missions.filter((m) => ["planning", "running", "reviewing"].includes(m.status)).length;
   const completedCount = missions.filter((m) => m.status === "ready" || m.status === "launched").length;
@@ -122,16 +123,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {showingLocalOnly && !loading && (
-        <div className="error-banner" style={{ borderColor: "var(--border-strong)", background: "var(--panel)", color: "var(--text-muted)" }}>
-          <AlertTriangle size={17} style={{ marginTop: 1, flexShrink: 0, color: "var(--warn)" }} />
-          <span>
-            {t("dashboard.localOnly")}
-            {remoteError && remoteError.network ? t("dashboard.unreachable") : ""}
-          </span>
-        </div>
-      )}
-
       {!hydrated || loading ? (
         <SkeletonGrid />
       ) : missions.length === 0 ? (
@@ -168,9 +159,15 @@ function MissionCard({ mission, t, lang, statusLabel, statusBadge, deleting, onD
   const progress = mission.progress || {};
   const theme = localizeText(mission.theme || t("dashboard.untitled"), lang);
   const brief = missionCardBrief(mission, lang, t);
+  const eventDate = mission.date || mission.brief?.date || null;
+  const over = isEventOver(eventDate);
 
   return (
-    <div className="panel panel-pad panel-colorful" style={{ display: "block" }}>
+    <div
+      className="panel panel-pad panel-colorful"
+      data-event-over={over ? "true" : "false"}
+      style={{ display: "block", opacity: over ? 0.72 : 1 }}
+    >
       <div className="row-between" style={{ marginBottom: 14 }}>
         <span className="eyebrow">{t("dashboard.mission")} #{mission.id}</span>
         <div className="row" style={{ gap: 8 }}>
@@ -190,6 +187,9 @@ function MissionCard({ mission, t, lang, statusLabel, statusBadge, deleting, onD
       </div>
 
       <h3 style={{ fontSize: 19, marginBottom: 8 }}>{theme}</h3>
+      <div style={{ marginBottom: 10 }}>
+        <EventSchedule date={eventDate} compact />
+      </div>
       <p
         style={{
           fontSize: 15,

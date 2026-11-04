@@ -39,7 +39,7 @@ export function NotificationProvider({ children }) {
   }, []);
 
   const notify = useCallback(
-    ({ tone = "info", title, message, dedupeKey, action = null, ttlMs }) => {
+    ({ tone = "info", title, message, dedupeKey, action = null, ttlMs, reference = null }) => {
       const key = dedupeKey || `${tone}:${title}:${message}`;
       const existingId = idsByKey.current.get(key);
       const id = existingId ?? (nextId += 1);
@@ -49,12 +49,12 @@ export function NotificationProvider({ children }) {
         const existing = current.find((item) => item.id === id);
         if (existing) {
           return current.map((item) =>
-            item.id === id ? { ...item, count: item.count + 1, message, at: Date.now() } : item
+            item.id === id ? { ...item, count: item.count + 1, message, reference: reference || item.reference, at: Date.now() } : item
           );
         }
         return [
           ...current.slice(-4),
-          { id, key, tone, title, message, action, count: 1, at: Date.now() },
+          { id, key, tone, title, message, action, reference, count: 1, at: Date.now() },
         ];
       });
 
@@ -83,6 +83,7 @@ export function NotificationProvider({ children }) {
           tone: err.kind === "offline" ? "warning" : "error",
           title: TITLES[err.kind] || TITLES.unknown,
           message: err.message,
+          reference: err.correlationId,
           // One toast per failure kind + endpoint, however many times it fires.
           dedupeKey: `api:${err.kind}:${err.path}`,
         });
@@ -169,6 +170,15 @@ function NotificationTray({ items, onDismiss }) {
               <div style={{ fontSize: 14, color: "var(--text-muted)", marginTop: 4, wordBreak: "break-word" }}>
                 {item.message}
               </div>
+              {item.reference && (
+                <div
+                  className="mono"
+                  title="Quote this reference when reporting the problem; it matches the server log."
+                  style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 6, userSelect: "all" }}
+                >
+                  Ref: {item.reference}
+                </div>
+              )}
             </div>
             <button
               className="btn btn-ghost btn-sm"

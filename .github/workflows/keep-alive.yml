@@ -1,0 +1,58 @@
+name: Keep Render backend awake
+
+# Render's free plan spins a web service down after 15 minutes without
+# traffic, and waking it takes about a minute. This pings the API every
+# 5 minutes from 08:00 to 00:00 IST so it stays warm while people use it.
+#
+# It deliberately sleeps overnight: a Render workspace gets 750 free instance
+# hours a month across ALL its free services, and running out suspends every
+# one of them until the 1st. 16 h/day is about 500 h/month, which leaves room
+# for the workspace's other free services. A request overnight still works; it
+# just waits for the cold start (the frontend shows a "waking up" banner).
+#
+# GitHub may start scheduled runs a few minutes late, hence 5 minutes rather
+# than 10. GitHub also disables schedules in a public repo after 60 days with
+# no commits; re-enable it from the Actions tab if that happens.
+#
+# Override the target without editing this file: Settings > Secrets and
+# variables > Actions > Variables > KEEPALIVE_URLS (space-separated URLs).
+
+on:
+  schedule:
+    # Cron is UTC. IST = UTC+5:30, so 08:00-00:00 IST = 02:30-18:30 UTC.
+    - cron: "30-55/5 2 * * *"
+    - cron: "*/5 3-17 * * *"
+    - cron: "0-30/5 18 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: keep-alive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping health endpoints
+        env:
+          URLS: ${{ vars.KEEPALIVE_URLS || 'https://agent-helper-api.onrender.com/health' }}
+        run: |
+          status=0
+          for url in $URLS; do
+            ok=0
+            for attempt in 1 2 3; do
+              # A sleeping instance can take ~60 s to answer its first request.
+              code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 90 "$url" || echo "000")
+              echo "$url attempt $attempt -> HTTP $code"
+              if [ "$code" = "200" ]; then ok=1; break; fi
+              sleep 10
+            done
+            if [ "$ok" != "1" ]; then
+              echo "::warning title=Keep-alive::$url did not return 200"
+              status=1
+            fi
+          done
+          exit $status

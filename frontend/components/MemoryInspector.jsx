@@ -74,7 +74,6 @@ export default function MemoryInspector() {
 
   if (!status) return null;
 
-  const degraded = (status.degraded_collections || []).length > 0;
 
   return (
     <div className="stack" style={{ gap: 16 }}>
@@ -115,14 +114,6 @@ export default function MemoryInspector() {
             <dd className="mono">{status.total_points}</dd>
           </div>
         </dl>
-
-        {degraded && (
-          <div className="error-banner" style={{ marginTop: 14 }}>
-            <span style={{ fontSize: 15 }}>
-              {t("memoryInspector.degraded", { list: status.degraded_collections.join(", ") })}
-            </span>
-          </div>
-        )}
       </div>
 
       <div className="panel panel-pad">

@@ -68,12 +68,9 @@ body {
 }
 
 body {
-  background-image:
-    radial-gradient(1100px 700px at 95% -5%, rgba(255, 122, 51, 0.18), transparent 55%),
-    radial-gradient(900px 650px at -5% 15%, rgba(79, 182, 232, 0.14), transparent 55%),
-    radial-gradient(700px 550px at 50% 100%, rgba(192, 132, 252, 0.12), transparent 50%),
-    radial-gradient(500px 400px at 80% 60%, rgba(61, 220, 151, 0.1), transparent 45%),
-    radial-gradient(400px 350px at 20% 80%, rgba(244, 114, 182, 0.08), transparent 45%);
+  /* One faint wash of the brand orange; the five multicolour glows read as
+     template decoration rather than a choice. */
+  background-image: radial-gradient(1100px 700px at 95% -5%, rgba(255, 122, 51, 0.1), transparent 55%);
   background-attachment: fixed;
 }
 
@@ -166,7 +163,7 @@ html[lang="ur"] {
   top: 0;
   height: 100vh;
   border-right: 1px solid var(--border);
-  background: linear-gradient(180deg, var(--bg-elevated) 0%, #0c1020 100%);
+  background: var(--bg-elevated);
   display: flex;
   flex-direction: column;
   padding: 24px 16px;
@@ -183,13 +180,12 @@ html[lang="ur"] {
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  background: linear-gradient(135deg, var(--accent), #e84393, #7c3aed);
+  background: var(--accent);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--bg);
   flex-shrink: 0;
-  box-shadow: 0 4px 20px rgba(255, 122, 51, 0.35);
 }
 
 .brand-text {
@@ -203,10 +199,7 @@ html[lang="ur"] {
   font-size: 18px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  background: linear-gradient(90deg, var(--accent-strong), var(--pink));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--accent-strong);
 }
 
 .brand-sub {
@@ -243,7 +236,7 @@ html[lang="ur"] {
 }
 
 .nav-item.active {
-  background: linear-gradient(90deg, var(--accent-soft), var(--purple-soft));
+  background: var(--accent-soft);
   color: var(--accent-strong);
   border: 1px solid rgba(255, 122, 51, 0.25);
 }
@@ -416,21 +409,13 @@ html[lang="ur"] {
   padding: 24px;
 }
 
+/* Emphasis panels: a stronger border on the plain panel surface. These used
+   to carry a four-colour rainbow strip on every card. */
 .panel-colorful {
-  background: linear-gradient(135deg, var(--panel) 0%, rgba(26, 35, 64, 0.9) 100%);
+  background: var(--panel);
   border: 1px solid var(--border-strong);
   position: relative;
   overflow: hidden;
-}
-
-.panel-colorful::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--accent), var(--info), var(--purple), var(--ok));
 }
 
 .eyebrow {
@@ -488,16 +473,18 @@ html[lang="ur"] {
 .btn:hover { border-color: var(--text-dim); transform: translateY(-1px); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
 
+/* Solid brand orange with a dark label: white on #ff7a33 is only ~2.6:1,
+   the near-black page colour on it is well above 4.5:1. */
 .btn-primary {
-  background: linear-gradient(135deg, var(--accent), #e84393);
+  background: var(--accent);
   border-color: transparent;
-  color: #fff;
-  box-shadow: 0 4px 16px rgba(255, 122, 51, 0.3);
+  color: var(--bg);
+  font-weight: 650;
 }
 
 .btn-primary:hover {
-  background: linear-gradient(135deg, var(--accent-strong), #f472b6);
-  box-shadow: 0 6px 20px rgba(255, 122, 51, 0.4);
+  background: var(--accent-strong);
+  border-color: transparent;
 }
 
 .btn-ghost {
@@ -534,8 +521,9 @@ html[lang="ur"] {
   font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 700;
-  color: var(--bg);
-  background: linear-gradient(135deg, var(--info), var(--purple));
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border: 1px solid rgba(255, 122, 51, 0.35);
   width: 32px;
   height: 32px;
   border-radius: 8px;
@@ -675,7 +663,7 @@ html[lang="ur"] {
   top: 32px;
   bottom: -16px;
   width: 2px;
-  background: linear-gradient(180deg, var(--border-strong), var(--accent-soft));
+  background: var(--border-strong);
 }
 
 .manifest-row:last-child .manifest-spine { display: none; }
@@ -729,12 +717,12 @@ html[lang="ur"] {
 
 .manifest-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--accent), var(--pink));
+  background: var(--accent);
   border-radius: 99px;
   transition: width 0.5s ease;
 }
 
-.manifest-row.complete .manifest-fill { background: linear-gradient(90deg, var(--ok), var(--cyan)); }
+.manifest-row.complete .manifest-fill { background: var(--ok); }
 .manifest-row.error .manifest-fill { background: var(--error); }
 
 /* ── misc layout helpers ──────────────────────────────────────────── */
@@ -932,15 +920,15 @@ table.data-table td {
 }
 
 .auth-page :where(.cl-formButtonPrimary) {
-  background: linear-gradient(135deg, #ff7a33, #e84393) !important;
-  box-shadow: 0 12px 30px rgba(255, 122, 51, 0.35) !important;
-  color: #ffffff !important;
+  background: #ff7a33 !important;
+  box-shadow: none !important;
+  color: #080b14 !important;
   font-weight: 800 !important;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .auth-page :where(.cl-formButtonPrimary:hover) {
-  box-shadow: 0 16px 38px rgba(255, 122, 51, 0.45) !important;
+  background: #ff9a5c !important;
   transform: translateY(-1px);
 }
 

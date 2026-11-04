@@ -210,7 +210,7 @@ function Toggle({ checked, onChange }) {
         height: 28,
         borderRadius: 99,
         border: "1px solid var(--border-strong)",
-        background: checked ? "linear-gradient(135deg, var(--accent), var(--pink))" : "var(--bg-elevated)",
+        background: checked ? "var(--accent)" : "var(--bg-elevated)",
         position: "relative",
         cursor: "pointer",
         flexShrink: 0,

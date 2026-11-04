@@ -50,13 +50,15 @@ const ACTION = {
 };
 
 export class ApiError extends Error {
-  constructor(kind, message, { status = null, detail = null, path = "", cause = null } = {}) {
+  constructor(kind, message, { status = null, detail = null, path = "", cause = null, correlationId = null } = {}) {
     super(message);
     this.name = "ApiError";
     this.kind = kind;
     this.status = status;
     this.detail = detail;
     this.path = path;
+    // Matches the X-Request-ID the backend logged for this request.
+    this.correlationId = correlationId;
     this.retryable = RETRYABLE.has(kind);
     this.action = ACTION[kind] || "retry";
     if (cause) this.cause = cause;
@@ -72,6 +74,7 @@ export class ApiError extends Error {
       kind: this.kind,
       status: this.status,
       path: this.path,
+      correlationId: this.correlationId,
       message: this.message,
       retryable: this.retryable,
       action: this.action,

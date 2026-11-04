@@ -185,7 +185,7 @@ export default function AnalyticsView() {
                 <div className="manifest-track" style={{ marginTop: 0 }}>
                   <div
                     className="manifest-fill"
-                    style={{ width: `${s.avg}%`, background: `linear-gradient(90deg, ${s.color}, ${s.color}88)` }}
+                    style={{ width: `${s.avg}%`, background: s.color }}
                   />
                 </div>
               </div>

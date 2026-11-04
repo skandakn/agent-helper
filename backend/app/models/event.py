@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
@@ -47,6 +47,23 @@ class EventLaunchRequest(BaseModel):
         """Normalize browser form strings before validation."""
 
         return value.strip() if isinstance(value, str) else value or ""
+
+    @field_validator("date")
+    @classmethod
+    def date_not_in_past(cls, value: datetime | None) -> datetime | None:
+        """A new event has to be scheduled for a moment that has not passed.
+
+        Naive datetimes are read as UTC. A few minutes of grace absorbs clock
+        skew between the browser and the API.
+        """
+
+        if value is None:
+            return value
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        if value < datetime.now(timezone.utc) - timedelta(minutes=5):
+            raise ValueError("Event date and time must be in the future.")
+        return value
 
     @field_validator("goals")
     @classmethod

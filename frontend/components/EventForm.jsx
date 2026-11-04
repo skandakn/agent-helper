@@ -5,6 +5,8 @@ import { api, normalizeConstraints } from "../services/api";
 import { useEventStore } from "../store/event";
 import { formatCurrencyINR } from "../lib/stages";
 import { useTranslation } from "../lib/i18n/context";
+import { combineDateTime, todayInputValue } from "../lib/eventSchedule";
+import EventSchedule from "./EventSchedule";
 
 export default function EventForm() {
   const router = useRouter();
@@ -21,6 +23,8 @@ export default function EventForm() {
     theme: "",
     goals: "",
     audience: "",
+    eventDate: "",
+    eventTime: "10:00",
     constraints: { budget_inr: 500000, duration_days: 60, team_size: 5 },
   };
 
@@ -36,9 +40,12 @@ export default function EventForm() {
   const durationDays = clampNumber(form.constraints.duration_days, 1, 730, 60);
   const teamSize = clampNumber(form.constraints.team_size, 1, 50, 5);
   const budgetInr = clampNumber(form.constraints.budget_inr, 0, Number.MAX_SAFE_INTEGER, 500000);
+  const eventIso = combineDateTime(form.eventDate, form.eventTime);
+  const eventInPast = Boolean(eventIso) && new Date(eventIso).getTime() < Date.now();
+  const scheduleError = !eventIso ? t("createEvent.dateRequired") : eventInPast ? t("createEvent.datePast") : null;
   const canAdvance =
     step === 0
-      ? form.theme.trim().length > 0
+      ? form.theme.trim().length > 0 && !scheduleError
       : step === 1
         ? form.constraints.duration_days !== "" && form.constraints.team_size !== ""
         : true;
@@ -63,7 +70,13 @@ export default function EventForm() {
         form.audience.trim() ||
         "builders, students, sponsors, mentors, judges, and community partners";
       const constraints = normalizeFormConstraints();
-      const payload = { project_id: 1, theme, goals, audience, constraints };
+      if (scheduleError) {
+        setError(scheduleError);
+        setSubmitting(false);
+        setStep(0);
+        return;
+      }
+      const payload = { project_id: 1, theme, goals, audience, constraints, date: eventIso };
       const res = await api.launchEvent(payload);
       const mission = {
         id: res.event_id,
@@ -72,6 +85,7 @@ export default function EventForm() {
         goals,
         audience,
         constraints,
+        date: eventIso,
         status: res.status || "planning",
         createdAt: new Date().toISOString(),
         progress: {},
@@ -130,6 +144,38 @@ export default function EventForm() {
                 autoFocus
               />
             </div>
+            <div className="row" style={{ gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
+              <div style={{ flex: "1 1 200px" }}>
+                <label className="label" htmlFor="event-date">{t("createEvent.eventDate")}</label>
+                <input
+                  id="event-date"
+                  className="input"
+                  type="date"
+                  min={todayInputValue()}
+                  value={form.eventDate}
+                  onChange={(e) => set("eventDate", e.target.value)}
+                  required
+                />
+              </div>
+              <div style={{ flex: "1 1 160px" }}>
+                <label className="label" htmlFor="event-time">{t("createEvent.eventTime")}</label>
+                <input
+                  id="event-time"
+                  className="input"
+                  type="time"
+                  value={form.eventTime}
+                  onChange={(e) => set("eventTime", e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+            {eventIso && !eventInPast ? (
+              <EventSchedule date={eventIso} />
+            ) : (
+              <div style={{ fontSize: 14, color: form.eventDate ? "var(--error)" : "var(--text-dim)" }}>
+                {scheduleError}
+              </div>
+            )}
             <div>
               <label className="label">{t("createEvent.goals")}</label>
               <textarea
@@ -202,6 +248,12 @@ export default function EventForm() {
               <div className="kv">
                 <dt>{t("createEvent.theme")}</dt>
                 <dd>{form.theme || "—"}</dd>
+              </div>
+              <div className="kv">
+                <dt>{t("createEvent.schedule")}</dt>
+                <dd>
+                  <EventSchedule date={eventIso} />
+                </dd>
               </div>
               <div className="kv">
                 <dt>{t("createEvent.goals")}</dt>
