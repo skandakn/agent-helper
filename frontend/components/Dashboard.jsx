@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import EventSchedule from "./EventSchedule";
 import { isEventOver } from "../lib/eventSchedule";
 import Link from "next/link";
-import { Plus, AlertTriangle, ArrowUpRight, Trash2 } from "lucide-react";
+import { Plus, ArrowUpRight, Trash2 } from "lucide-react";
 import { api } from "../services/api";
 import { useEventStore } from "../store/event";
 import { STAGES, formatDate } from "../lib/stages";
@@ -34,7 +34,6 @@ export default function Dashboard() {
   }, [userKey]);
 
   const missions = remote && remote.length ? remote : recent;
-  const showingLocalOnly = !remote || remote.length === 0;
 
   const activeCount = missions.filter((m) => ["planning", "running", "reviewing"].includes(m.status)).length;
   const completedCount = missions.filter((m) => m.status === "ready" || m.status === "launched").length;
@@ -121,16 +120,6 @@ export default function Dashboard() {
               <BarChart data={stageChartData} height={160} />
             </div>
           )}
-        </div>
-      )}
-
-      {showingLocalOnly && !loading && (
-        <div className="error-banner" style={{ borderColor: "var(--border-strong)", background: "var(--panel)", color: "var(--text-muted)" }}>
-          <AlertTriangle size={17} style={{ marginTop: 1, flexShrink: 0, color: "var(--warn)" }} />
-          <span>
-            {t("dashboard.localOnly")}
-            {remoteError && remoteError.network ? t("dashboard.unreachable") : ""}
-          </span>
         </div>
       )}
 

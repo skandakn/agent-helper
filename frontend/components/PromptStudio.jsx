@@ -154,11 +154,6 @@ export default function PromptStudio() {
         </p>
       </div>
 
-      {readOnly && (
-        <div className="error-banner">
-          <span style={{ fontSize: 15 }}>{t("promptStudio.readOnly")}</span>
-        </div>
-      )}
 
       <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
         {(index?.templates || []).map((item) => (
